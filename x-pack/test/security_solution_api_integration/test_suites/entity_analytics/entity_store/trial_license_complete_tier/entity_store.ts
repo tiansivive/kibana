@@ -12,6 +12,7 @@ import { dataViewRouteHelpersFactory } from '../../utils/data_view';
 export default ({ getService }: FtrProviderContext) => {
   const api = getService('securitySolutionApi');
   const supertest = getService('supertest');
+  const retry = getService('retry');
 
   const utils = EntityStoreUtils(getService);
   describe('@ess @skipInServerlessMKI Entity Store APIs', () => {
@@ -227,6 +228,31 @@ export default ({ getService }: FtrProviderContext) => {
         expect(body.engines.length).to.eql(2);
         expect(body.engines[0].status).to.eql('started');
         expect(body.engines[1].status).to.eql('started');
+      });
+    });
+
+    describe('error handling', () => {
+      before(async () => {
+        await dataView.delete('security-solution');
+      });
+
+      after(async () => {
+        await dataView.create('security-solution');
+        await utils.cleanEngines();
+      });
+      it('should return "error" when at least one engine fails initialization', async () => {
+        await utils.enableEntityStore();
+
+        await retry.waitForWithTimeout(`Failed engine initialization`, 60_000, async () => {
+          const { body } = await api.listEntityEngines().expect(200);
+          return body.engines.some((engine: any) => engine.status === 'error');
+        });
+
+        const { body } = await api.getEntityStoreStatus().expect(200);
+
+        expect(body.status).to.eql('error');
+        expect(body.engines.length).to.eql(1);
+        expect(body.engines[0].status).to.eql('error');
       });
     });
 
