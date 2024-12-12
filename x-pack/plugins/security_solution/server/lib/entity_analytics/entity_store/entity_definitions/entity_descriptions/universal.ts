@@ -25,6 +25,36 @@ const entityMetadataExtractorProcessor = {
     ],
     lang: 'painless',
     source: /* java */ `
+    // Array, boolean, integer, ip, bytes, anything that is not a map, is a leaf field
+     void overwriteLeafFields(Object toBeOverwritten, Object toOverwrite) {
+        if (!(toBeOverwritten instanceof Map)) {
+         // We can't override anything that isn't a map
+         return;
+        }
+
+        if (toOverwrite instanceof Map) { 
+          Map mapToBeOverwritten = (Map) toBeOverwritten;
+
+          for (entryToOverwrite in ((Map) toOverwrite).entrySet()) {
+
+            String keyToOverwrite = entryToOverwrite.getKey();
+            Object valueToOverwrite = entryToOverwrite.getValue();
+              
+            if (valueToOverwrite instanceof Map) {
+              // If no initial value, we just put everything we have to overwrite
+              if (mapToBeOverwritten.get(keyToOverwrite) == null) { 
+                mapToBeOverwritten.put(keyToOverwrite, valueToOverwrite)
+              } else {
+                overwriteLeafFields(mapToBeOverwritten.get(keyToOverwrite), valueToOverwrite);
+              }
+            } else {
+              mapToBeOverwritten.put(keyToOverwrite, valueToOverwrite)
+            }
+          }
+        }
+      }
+
+
       Map merged = ctx;
       def id = ctx.entity.id;
 
@@ -35,11 +65,7 @@ const entityMetadataExtractorProcessor = {
           continue;
         }
 
-        for (entry in ((Map)json)[id].entrySet()) {
-          String key = entry.getKey();
-          Object value = entry.getValue();
-          merged.put(key, value);
-        }
+        overwriteLeafFields(merged, ((Map)json)[id])
       }
       
       merged.entity.id = id;
