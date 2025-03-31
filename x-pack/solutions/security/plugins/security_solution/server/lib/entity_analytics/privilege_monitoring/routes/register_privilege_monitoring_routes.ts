@@ -10,6 +10,16 @@ import { healthCheckPrivilegeMonitoringRoute } from './health';
 
 import { initPrivilegeMonitoringEngineRoute } from './init';
 
+import {
+  getUserRoute,
+  createUserRoute,
+  deleteUserRoute,
+  listUsersRoute,
+  updateUserRoute,
+  uploadUsersCSVRoute,
+  uploadUsersJSONRoute,
+} from './users';
+
 export const registerPrivilegeMonitoringRoutes = ({
   router,
   logger,
@@ -18,4 +28,11 @@ export const registerPrivilegeMonitoringRoutes = ({
 }: EntityAnalyticsRoutesDeps) => {
   initPrivilegeMonitoringEngineRoute(router, logger, config);
   healthCheckPrivilegeMonitoringRoute(router, logger, config);
+  getUserRoute(router, logger, getStartServices);
+  createUserRoute(router, logger, getStartServices);
+  deleteUserRoute(router, logger, getStartServices);
+  listUsersRoute(router, logger, getStartServices);
+  updateUserRoute(router, logger, getStartServices);
+  uploadUsersCSVRoute(router, logger, getStartServices);
+  uploadUsersJSONRoute(router, logger, getStartServices);
 };
