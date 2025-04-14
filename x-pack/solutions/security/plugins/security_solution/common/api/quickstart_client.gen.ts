@@ -261,25 +261,25 @@ import type {
 import type { InitMonitoringEngineResponse } from './entity_analytics/privilege_monitoring/engine/init.gen';
 import type { PrivMonHealthResponse } from './entity_analytics/privilege_monitoring/health.gen';
 import type {
-  CreateUserRequestBodyInput,
-  CreateUserResponse,
+  CreatePrivMonUserRequestBodyInput,
+  CreatePrivMonUserResponse,
 } from './entity_analytics/privilege_monitoring/users/create.gen';
 import type {
-  DeleteUserRequestParamsInput,
-  DeleteUserResponse,
+  DeletePrivMonUserRequestParamsInput,
+  DeletePrivMonUserResponse,
 } from './entity_analytics/privilege_monitoring/users/delete.gen';
 import type {
-  GetUserRequestParamsInput,
-  GetUserResponse,
+  GetPrivMonUserRequestParamsInput,
+  GetPrivMonUserResponse,
 } from './entity_analytics/privilege_monitoring/users/get.gen';
 import type {
-  ListUsersRequestQueryInput,
-  ListUsersResponse,
+  ListPrivMonUsersRequestQueryInput,
+  ListPrivMonUsersResponse,
 } from './entity_analytics/privilege_monitoring/users/list.gen';
 import type {
-  UpdateUserRequestParamsInput,
-  UpdateUserRequestBodyInput,
-  UpdateUserResponse,
+  UpdatePrivMonUserRequestParamsInput,
+  UpdatePrivMonUserRequestBodyInput,
+  UpdatePrivMonUserResponse,
 } from './entity_analytics/privilege_monitoring/users/update.gen';
 import type { BulkUploadUsersCSVResponse } from './entity_analytics/privilege_monitoring/users/upload_csv.gen';
 import type { BulkUploadUsersJSONResponse } from './entity_analytics/privilege_monitoring/users/upload_json.gen';
@@ -638,6 +638,19 @@ If a record already exists for the specified entity, that record is overwritten 
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
+  async createPrivMonUser(props: CreatePrivMonUserProps) {
+    this.log.info(`${new Date().toISOString()} Calling API CreatePrivMonUser`);
+    return this.kbnClient
+      .request<CreatePrivMonUserResponse>({
+        path: '/api/entity_analytics/monitoring/users',
+        headers: {
+          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
+        },
+        method: 'POST',
+        body: props.body,
+      })
+      .catch(catchAxiosErrorFormatAndThrow);
+  }
   /**
     * Create a new detection rule.
 > warn
@@ -756,19 +769,6 @@ For detailed information on Kibana actions and alerting, and additional API call
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
-  async createUser(props: CreateUserProps) {
-    this.log.info(`${new Date().toISOString()} Calling API CreateUser`);
-    return this.kbnClient
-      .request<CreateUserResponse>({
-        path: '/api/entity_analytics/monitoring/users',
-        headers: {
-          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
-        },
-        method: 'POST',
-        body: props.body,
-      })
-      .catch(catchAxiosErrorFormatAndThrow);
-  }
   async deleteAlertsIndex() {
     this.log.info(`${new Date().toISOString()} Calling API DeleteAlertsIndex`);
     return this.kbnClient
@@ -828,6 +828,18 @@ For detailed information on Kibana actions and alerting, and additional API call
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
+  async deletePrivMonUser(props: DeletePrivMonUserProps) {
+    this.log.info(`${new Date().toISOString()} Calling API DeletePrivMonUser`);
+    return this.kbnClient
+      .request<DeletePrivMonUserResponse>({
+        path: replaceParams('/api/entity_analytics/monitoring/users', props.params),
+        headers: {
+          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
+        },
+        method: 'DELETE',
+      })
+      .catch(catchAxiosErrorFormatAndThrow);
+  }
   /**
     * Delete a detection rule using the `rule_id` or `id` field.
 
@@ -866,18 +878,6 @@ The difference between the `id` and `rule_id` is that the `id` is a unique rule 
         },
         method: 'DELETE',
         body: props.body,
-      })
-      .catch(catchAxiosErrorFormatAndThrow);
-  }
-  async deleteUser(props: DeleteUserProps) {
-    this.log.info(`${new Date().toISOString()} Calling API DeleteUser`);
-    return this.kbnClient
-      .request<DeleteUserResponse>({
-        path: replaceParams('/api/entity_analytics/monitoring/users', props.params),
-        headers: {
-          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
-        },
-        method: 'DELETE',
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
@@ -1415,6 +1415,18 @@ finalize it.
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
+  async getPrivMonUser(props: GetPrivMonUserProps) {
+    this.log.info(`${new Date().toISOString()} Calling API GetPrivMonUser`);
+    return this.kbnClient
+      .request<GetPrivMonUserResponse>({
+        path: replaceParams('/api/entity_analytics/monitoring/users/{id}', props.params),
+        headers: {
+          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
+        },
+        method: 'GET',
+      })
+      .catch(catchAxiosErrorFormatAndThrow);
+  }
   async getProtectionUpdatesNote(props: GetProtectionUpdatesNoteProps) {
     this.log.info(`${new Date().toISOString()} Calling API GetProtectionUpdatesNote`);
     return this.kbnClient
@@ -1649,18 +1661,6 @@ finalize it.
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
-  async getUser(props: GetUserProps) {
-    this.log.info(`${new Date().toISOString()} Calling API GetUser`);
-    return this.kbnClient
-      .request<GetUserResponse>({
-        path: replaceParams('/api/entity_analytics/monitoring/users/{id}', props.params),
-        headers: {
-          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
-        },
-        method: 'GET',
-      })
-      .catch(catchAxiosErrorFormatAndThrow);
-  }
   async getWorkflowInsights(props: GetWorkflowInsightsProps) {
     this.log.info(`${new Date().toISOString()} Calling API GetWorkflowInsights`);
     return this.kbnClient
@@ -1877,10 +1877,10 @@ providing you with the most current and effective threat detection capabilities.
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
-  async listUsers(props: ListUsersProps) {
-    this.log.info(`${new Date().toISOString()} Calling API ListUsers`);
+  async listPrivMonUsers(props: ListPrivMonUsersProps) {
+    this.log.info(`${new Date().toISOString()} Calling API ListPrivMonUsers`);
     return this.kbnClient
-      .request<ListUsersResponse>({
+      .request<ListPrivMonUsersResponse>({
         path: '/api/entity_analytics/monitoring/users/list',
         headers: {
           [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
@@ -2378,6 +2378,19 @@ The difference between the `id` and `rule_id` is that the `id` is a unique rule 
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
+  async updatePrivMonUser(props: UpdatePrivMonUserProps) {
+    this.log.info(`${new Date().toISOString()} Calling API UpdatePrivMonUser`);
+    return this.kbnClient
+      .request<UpdatePrivMonUserResponse>({
+        path: replaceParams('/api/entity_analytics/monitoring/users/{id}', props.params),
+        headers: {
+          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
+        },
+        method: 'PUT',
+        body: props.body,
+      })
+      .catch(catchAxiosErrorFormatAndThrow);
+  }
   /**
     * Update a detection rule using the `rule_id` or `id` field. The original rule is replaced, and all unspecified fields are deleted.
 
@@ -2411,19 +2424,6 @@ The difference between the `id` and `rule_id` is that the `id` is a unique rule 
         path: replaceParams('/internal/siem_migrations/rules/{migration_id}', props.params),
         headers: {
           [ELASTIC_HTTP_VERSION_HEADER]: '1',
-        },
-        method: 'PUT',
-        body: props.body,
-      })
-      .catch(catchAxiosErrorFormatAndThrow);
-  }
-  async updateUser(props: UpdateUserProps) {
-    this.log.info(`${new Date().toISOString()} Calling API UpdateUser`);
-    return this.kbnClient
-      .request<UpdateUserResponse>({
-        path: replaceParams('/api/entity_analytics/monitoring/users/{id}', props.params),
-        headers: {
-          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
         },
         method: 'PUT',
         body: props.body,
@@ -2498,6 +2498,9 @@ export interface CreateAlertsMigrationProps {
 export interface CreateAssetCriticalityRecordProps {
   body: CreateAssetCriticalityRecordRequestBodyInput;
 }
+export interface CreatePrivMonUserProps {
+  body: CreatePrivMonUserRequestBodyInput;
+}
 export interface CreateRuleProps {
   body: CreateRuleRequestBodyInput;
 }
@@ -2512,9 +2515,6 @@ export interface CreateUpdateProtectionUpdatesNoteProps {
   params: CreateUpdateProtectionUpdatesNoteRequestParamsInput;
   body: CreateUpdateProtectionUpdatesNoteRequestBodyInput;
 }
-export interface CreateUserProps {
-  body: CreateUserRequestBodyInput;
-}
 export interface DeleteAssetCriticalityRecordProps {
   query: DeleteAssetCriticalityRecordRequestQueryInput;
 }
@@ -2525,14 +2525,14 @@ export interface DeleteEntityEngineProps {
 export interface DeleteNoteProps {
   body: DeleteNoteRequestBodyInput;
 }
+export interface DeletePrivMonUserProps {
+  params: DeletePrivMonUserRequestParamsInput;
+}
 export interface DeleteRuleProps {
   query: DeleteRuleRequestQueryInput;
 }
 export interface DeleteTimelinesProps {
   body: DeleteTimelinesRequestBodyInput;
-}
-export interface DeleteUserProps {
-  params: DeleteUserRequestParamsInput;
 }
 export interface DeprecatedTriggerRiskScoreCalculationProps {
   body: DeprecatedTriggerRiskScoreCalculationRequestBodyInput;
@@ -2621,6 +2621,9 @@ export interface GetNotesProps {
 export interface GetPolicyResponseProps {
   query: GetPolicyResponseRequestQueryInput;
 }
+export interface GetPrivMonUserProps {
+  params: GetPrivMonUserRequestParamsInput;
+}
 export interface GetProtectionUpdatesNoteProps {
   params: GetProtectionUpdatesNoteRequestParamsInput;
 }
@@ -2658,9 +2661,6 @@ export interface GetTimelineProps {
 export interface GetTimelinesProps {
   query: GetTimelinesRequestQueryInput;
 }
-export interface GetUserProps {
-  params: GetUserRequestParamsInput;
-}
 export interface GetWorkflowInsightsProps {
   query: GetWorkflowInsightsRequestQueryInput;
 }
@@ -2691,8 +2691,8 @@ export interface InternalUploadAssetCriticalityRecordsProps {
 export interface ListEntitiesProps {
   query: ListEntitiesRequestQueryInput;
 }
-export interface ListUsersProps {
-  query: ListUsersRequestQueryInput;
+export interface ListPrivMonUsersProps {
+  query: ListPrivMonUsersRequestQueryInput;
 }
 export interface PatchRuleProps {
   body: PatchRuleRequestBodyInput;
@@ -2763,16 +2763,16 @@ export interface SuggestUserProfilesProps {
 export interface TriggerRiskScoreCalculationProps {
   body: TriggerRiskScoreCalculationRequestBodyInput;
 }
+export interface UpdatePrivMonUserProps {
+  params: UpdatePrivMonUserRequestParamsInput;
+  body: UpdatePrivMonUserRequestBodyInput;
+}
 export interface UpdateRuleProps {
   body: UpdateRuleRequestBodyInput;
 }
 export interface UpdateRuleMigrationProps {
   params: UpdateRuleMigrationRequestParamsInput;
   body: UpdateRuleMigrationRequestBodyInput;
-}
-export interface UpdateUserProps {
-  params: UpdateUserRequestParamsInput;
-  body: UpdateUserRequestBodyInput;
 }
 export interface UpdateWorkflowInsightProps {
   params: UpdateWorkflowInsightRequestParamsInput;
