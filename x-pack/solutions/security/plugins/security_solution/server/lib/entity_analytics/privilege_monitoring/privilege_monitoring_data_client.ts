@@ -40,7 +40,10 @@ import {
   type EngineComponentResource,
 } from '../../../../common/api/entity_analytics/privilege_monitoring/common.gen';
 import type { ApiKeyManager } from './auth/api_key';
-import { startPrivilegeMonitoringTask } from './tasks/privilege_monitoring_task';
+import {
+  removePrivilegeMonitoringTask,
+  startPrivilegeMonitoringTask,
+} from './tasks/privilege_monitoring_task';
 import { createOrUpdateIndex } from '../utils/create_or_update_index';
 import {
   PRIVILEGED_MONITOR_IMPORT_USERS_INDEX_MAPPING,
@@ -184,6 +187,37 @@ export class PrivilegeMonitoringDataClient {
     }
 
     return descriptor;
+  }
+
+  async delete(deleteData = false): Promise<{ deleted: boolean }> {
+    this.log('info', 'Deleting privilege monitoring engine');
+
+    await this.engineClient.delete();
+
+    if (deleteData) {
+      await this.esClient.indices.delete(
+        {
+          index: this.getIndex(),
+        },
+        {
+          ignore: [404],
+        }
+      );
+    }
+    if (!this.opts.taskManager) {
+      throw new Error('Task Manager is not available');
+    }
+    await removePrivilegeMonitoringTask({
+      logger: this.opts.logger,
+      namespace: this.opts.namespace,
+      taskManager: this.opts.taskManager,
+    });
+
+    await this.monitoringIndexSourceClient
+      .findAll({})
+      .then((sos) => sos.forEach((so) => this.monitoringIndexSourceClient.delete(so.id)));
+
+    return { deleted: true };
   }
 
   async getEngineStatus() {

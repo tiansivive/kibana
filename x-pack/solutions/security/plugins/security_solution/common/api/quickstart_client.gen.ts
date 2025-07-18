@@ -267,6 +267,10 @@ import type {
   SearchPrivilegesIndicesRequestQueryInput,
   SearchPrivilegesIndicesResponse,
 } from './entity_analytics/monitoring/search_indices.gen';
+import type {
+  DeleteMonitoringEngineRequestQueryInput,
+  DeleteMonitoringEngineResponse,
+} from './entity_analytics/privilege_monitoring/engine/delete.gen';
 import type { InitMonitoringEngineResponse } from './entity_analytics/privilege_monitoring/engine/init.gen';
 import type { PrivMonHealthResponse } from './entity_analytics/privilege_monitoring/health.gen';
 import type {
@@ -865,6 +869,20 @@ For detailed information on Kibana actions and alerting, and additional API call
           [ELASTIC_HTTP_VERSION_HEADER]: '1',
         },
         method: 'DELETE',
+      })
+      .catch(catchAxiosErrorFormatAndThrow);
+  }
+  async deleteMonitoringEngine(props: DeleteMonitoringEngineProps) {
+    this.log.info(`${new Date().toISOString()} Calling API DeleteMonitoringEngine`);
+    return this.kbnClient
+      .request<DeleteMonitoringEngineResponse>({
+        path: '/api/entity_analytics/monitoring/engine/delete',
+        headers: {
+          [ELASTIC_HTTP_VERSION_HEADER]: '2023-10-31',
+        },
+        method: 'DELETE',
+
+        query: props.query,
       })
       .catch(catchAxiosErrorFormatAndThrow);
   }
@@ -2759,6 +2777,9 @@ export interface DeleteEntityEngineProps {
 }
 export interface DeleteEntitySourceProps {
   params: DeleteEntitySourceRequestParamsInput;
+}
+export interface DeleteMonitoringEngineProps {
+  query: DeleteMonitoringEngineRequestQueryInput;
 }
 export interface DeleteNoteProps {
   body: DeleteNoteRequestBodyInput;

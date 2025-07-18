@@ -5,7 +5,12 @@
  * 2.0.
  */
 
-import type { Logger, AnalyticsServiceSetup, AuditLogger } from '@kbn/core/server';
+import {
+  type Logger,
+  type AnalyticsServiceSetup,
+  type AuditLogger,
+  SavedObjectsErrorHelpers,
+} from '@kbn/core/server';
 import type {
   ConcreteTaskInstance,
   TaskManagerSetupContract,
@@ -212,5 +217,29 @@ export const startPrivilegeMonitoringTask = async ({
       `[Privilege Monitoring]  [task ${taskId}]: error scheduling task, received ${e.message}`
     );
     throw e;
+  }
+};
+
+export const removePrivilegeMonitoringTask = async ({
+  logger,
+  namespace,
+  taskManager,
+}: {
+  logger: Logger;
+  namespace: string;
+  taskManager: TaskManagerStartContract;
+}) => {
+  try {
+    await taskManager.remove(getTaskId(namespace));
+    logger.info(
+      `[Privilege Monitoring] Removed privilege monitoring task for namespace ${namespace}`
+    );
+  } catch (err) {
+    if (!SavedObjectsErrorHelpers.isNotFoundError(err)) {
+      logger.error(
+        `[Privilege Monitoring] Failed to remove privilege monitoring task: ${err.message}`
+      );
+      throw err;
+    }
   }
 };
