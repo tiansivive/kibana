@@ -12,18 +12,32 @@ import { useExpandableFlyoutApi } from '@kbn/expandable-flyout';
 
 import { DraggableBadge } from '../../../../../common/components/draggables';
 import { getFlyoutPanelProps } from './helpers';
+import { isHostName } from './get_host_flyout_panel_props';
+import { isUserName } from './get_user_flyout_panel_props';
 import type { ParsedField } from '../types';
 
 const contextId = 'FieldMarkdownRenderer';
 
-export const getFieldMarkdownRenderer = (disableActions: boolean, scopeId?: string) => {
+export const getFieldMarkdownRenderer = (
+  disableActions: boolean,
+  scopeId?: string,
+  hostEntityIds?: Record<string, string>,
+  userEntityIds?: Record<string, string>
+) => {
   const FieldMarkdownRenderer = ({ icon, name, value }: ParsedField) => {
     const { openRightPanel } = useExpandableFlyoutApi();
     const { euiTheme } = useEuiTheme();
 
+    const entityId = useMemo(() => {
+      if (typeof value !== 'string') return undefined;
+      if (isHostName(name)) return hostEntityIds?.[value];
+      if (isUserName(name)) return userEntityIds?.[value];
+      return undefined;
+    }, [name, value]);
+
     const flyoutPanelProps = useMemo(
-      () => getFlyoutPanelProps({ contextId, fieldName: name, value }),
-      [name, value]
+      () => getFlyoutPanelProps({ contextId, fieldName: name, value, entityId }),
+      [name, value, entityId]
     );
 
     const onEntityClick = useCallback(() => {

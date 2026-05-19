@@ -19,12 +19,16 @@ interface Props {
   scopeId?: string;
   disableActions?: boolean;
   markdown: string;
+  hostEntityIds?: Record<string, string>;
+  userEntityIds?: Record<string, string>;
 }
 
 const AttackDiscoveryMarkdownFormatterComponent: React.FC<Props> = ({
   scopeId,
   disableActions = false,
   markdown,
+  hostEntityIds,
+  userEntityIds,
 }) => {
   const attackDiscoveryParsingPluginList = useMemo(
     () => [...getDefaultEuiMarkdownParsingPlugins(), AttackDiscoveryMarkdownParser],
@@ -35,11 +39,13 @@ const AttackDiscoveryMarkdownFormatterComponent: React.FC<Props> = ({
     const processingPluginList = getDefaultEuiMarkdownProcessingPlugins();
     processingPluginList[1][1].components.fieldPlugin = getFieldMarkdownRenderer(
       disableActions,
-      scopeId
+      scopeId,
+      hostEntityIds,
+      userEntityIds
     );
 
     return processingPluginList;
-  }, [disableActions, scopeId]);
+  }, [disableActions, scopeId, hostEntityIds, userEntityIds]);
 
   return (
     <EuiMarkdownFormat

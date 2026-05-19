@@ -27,14 +27,17 @@ export const isHostName = (fieldName: string) =>
 export const getHostFlyoutPanelProps = ({
   contextId,
   hostName,
+  entityId,
 }: {
   contextId: string;
   hostName: string;
+  entityId?: string;
 }): FlyoutPanelProps => ({
   id: HostPanelKey,
   params: {
     hostName,
     contextID: contextId,
     scopeId: TableId.alertsOnAlertsPage,
+    ...(entityId ? { entityId } : {}),
   },
 });

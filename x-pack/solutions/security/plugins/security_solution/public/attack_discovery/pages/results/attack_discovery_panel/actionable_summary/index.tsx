@@ -25,12 +25,16 @@ interface Props {
   attackDiscovery: AttackDiscovery;
   replacements?: Replacements;
   showAnonymized?: boolean;
+  hostEntityIds?: Record<string, string>;
+  userEntityIds?: Record<string, string>;
 }
 
 const ActionableSummaryComponent: React.FC<Props> = ({
   attackDiscovery,
   replacements,
   showAnonymized = false,
+  hostEntityIds,
+  userEntityIds,
 }) => {
   const {
     application: { capabilities },
@@ -82,6 +86,8 @@ const ActionableSummaryComponent: React.FC<Props> = ({
           <AttackDiscoveryMarkdownFormatter
             disableActions={disabledActions}
             markdown={entitySummaryOrTitle}
+            hostEntityIds={hostEntityIds}
+            userEntityIds={userEntityIds}
           />
         </EuiFlexItem>
 
