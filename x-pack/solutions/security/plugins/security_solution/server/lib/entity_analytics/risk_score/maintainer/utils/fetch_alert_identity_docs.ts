@@ -8,9 +8,9 @@
 import { chunk } from 'lodash';
 import type { ElasticsearchClient } from '@kbn/core/server';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types';
-import { euid } from '@kbn/entity-store/common/euid_helpers';
 import { isEntityTypeCreatableFromSingleDocument } from '@kbn/entity-store/server';
 import type { EntityType } from '../../../../../../common/entity_analytics/types';
+import { buildEuidRuntimeMappingWithStoredFieldFastPath } from '../../calculate_esql_risk_scores';
 import type { ScopedLogger } from './with_log_context';
 
 /** Bounds each `terms`/`top_hits` request; chunks are sequential to limit in-flight responses. */
@@ -60,10 +60,7 @@ export const fetchAlertIdentityDocs = async ({
     return result;
   }
 
-  // Keep this runtime mapping and `alertFilters` aligned with base scoring so each bucket
-  // legitimately computes its requested EUID.
-  // TODO: Reconsider this coupling after elastic/security-team#18624 is resolved.
-  const runtimeMapping = euid.painless.getEuidRuntimeMapping(entityType);
+  const runtimeMapping = buildEuidRuntimeMappingWithStoredFieldFastPath(entityType);
 
   for (const euidsChunk of chunk(euids, ALERT_IDENTITY_DOCS_CHUNK_SIZE)) {
     if (abortSignal?.aborted) {
