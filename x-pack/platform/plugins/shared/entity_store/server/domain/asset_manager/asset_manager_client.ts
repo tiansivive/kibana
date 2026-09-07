@@ -132,7 +132,8 @@ export class AssetManagerClient {
     request: KibanaRequest,
     entityTypes: EntityType[],
     logsExtractionParams?: LogExtractionInstallParams,
-    historySnapshotParams?: HistorySnapshotBodyParams
+    historySnapshotParams?: HistorySnapshotBodyParams,
+    excludedUserNames?: string[]
   ) {
     try {
       const existingState = await this.globalStateClient.find();
@@ -144,7 +145,7 @@ export class AssetManagerClient {
 
       // Phase 1: Install shared ES assets/storage and run independent setup tasks.
       await Promise.all([
-        this.globalStateClient.init({ historySnapshot, logsExtraction }),
+        this.globalStateClient.init({ historySnapshot, logsExtraction, excludedUserNames }),
 
         // V1 cleanup is legacy migration work — run it as the internal user so enabling the
         // entity store does not require the user to hold transform/enrich/index admin on v1 assets.
@@ -343,11 +344,13 @@ export class AssetManagerClient {
 
   public async getStatus(withComponents: boolean = false): Promise<GetStatusResult> {
     try {
-      const [engines, { historySnapshot, logsExtraction: logsExtractionConfig }] =
-        await Promise.all([
-          this.engineDescriptorClient.getAll(),
-          this.globalStateClient.findOrThrow(),
-        ]);
+      const [
+        engines,
+        { historySnapshot, logsExtraction: logsExtractionConfig, excludedUserNames },
+      ] = await Promise.all([
+        this.engineDescriptorClient.getAll(),
+        this.globalStateClient.findOrThrow(),
+      ]);
 
       const status = this.calculateEntityStoreStatus(engines);
 
@@ -360,10 +363,11 @@ export class AssetManagerClient {
           engines: enginesWithComponents,
           historySnapshot,
           logsExtractionConfig,
+          excludedUserNames,
         };
       }
 
-      return { status, engines, historySnapshot, logsExtractionConfig };
+      return { status, engines, historySnapshot, logsExtractionConfig, excludedUserNames };
     } catch (error) {
       if (SavedObjectsErrorHelpers.isNotFoundError(error)) {
         return { status: ENTITY_STORE_STATUS.NOT_INSTALLED, engines: [] };

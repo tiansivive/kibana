@@ -16,6 +16,7 @@ import {
   type EntityField,
   type EntityType,
 } from '../../../common/domain/definitions/entity_schema';
+import type { EntityDefinitionOptions } from '../../../common/domain/definitions/registry';
 import {
   getEuidEsqlEvaluation,
   getFieldEvaluationsEsqlFromDefinition,
@@ -66,6 +67,7 @@ interface LogsExtractionQueryParams {
   indexPatterns: string[];
   latestIndex: string;
   entityDefinition: EntityDefinition;
+  entityDefinitionOptions?: EntityDefinitionOptions;
   docsLimit: number;
   fromDateISO: string;
   toDateISO: string;
@@ -78,6 +80,7 @@ interface LogsExtractionQueryParams {
 export function buildLogsExtractionEsqlQuery({
   indexPatterns,
   entityDefinition,
+  entityDefinitionOptions,
   fromDateISO,
   toDateISO,
   docsLimit,
@@ -110,6 +113,7 @@ export function buildLogsExtractionEsqlQuery({
     const fieldEvalsEsql = getFieldEvaluationsEsqlFromDefinition(entityDefinition);
     const euidEsql = getEuidEsqlEvaluation(type, recentData(ENGINE_METADATA_UNTYPED_ID_FIELD), {
       withTypeId: false,
+      options: entityDefinitionOptions,
     });
     parts.push(`| EVAL ${fieldEvalsEsql ? `${fieldEvalsEsql},\n ${euidEsql}` : euidEsql}`);
   }
