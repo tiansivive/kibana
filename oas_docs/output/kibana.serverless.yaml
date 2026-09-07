@@ -63109,6 +63109,11 @@ paths:
               additionalProperties: false
               type: object
               properties:
+                excludedUserNames:
+                  items:
+                    type: string
+                  maxItems: 200
+                  type: array
                 logExtraction:
                   additionalProperties: false
                   type: object
@@ -63173,8 +63178,6 @@ paths:
                       maxLength: 32
                       pattern: '[smdh]$'
                       type: string
-              required:
-                - logExtraction
       responses:
         '200':
           content:
@@ -70774,6 +70777,11 @@ paths:
                       - service
                       - generic
                     type: string
+                  type: array
+                excludedUserNames:
+                  items:
+                    type: string
+                  maxItems: 200
                   type: array
                 historySnapshot:
                   additionalProperties: false
