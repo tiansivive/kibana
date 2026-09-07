@@ -221,10 +221,7 @@ export class LogsExtractionClient {
       ...globalState.logsExtraction,
       ...params,
     });
-    await this.globalStateClient.update({
-      logsExtraction: mergedConfig,
-      ...(excludedUserNames !== undefined && { excludedUserNames }),
-    });
+    await this.globalStateClient.update({ logsExtraction: mergedConfig, excludedUserNames });
     return mergedConfig;
   }
 
