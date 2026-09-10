@@ -15,12 +15,11 @@ import type {
   EntityType,
   ManagedEntityDefinition,
 } from '../../../common/domain/definitions/entity_schema';
-import { getEntityDefinition } from '../../../common/domain/definitions/registry';
 import {
-  type LogSlicePaginationParams,
-  type PaginationParams,
-  ENGINE_METADATA_PAGINATION_FIRST_SEEN_LOG_FIELD,
-} from './query_builder_commons';
+  getEntityDefinition,
+  type EntityDefinitionOptions,
+} from '../../../common/domain/definitions/registry';
+import { type LogSlicePaginationParams, type PaginationParams } from './query_builder_commons';
 import {
   buildLogPaginationCursorProbeEsql,
   interpretLogPaginationCursorRows,
@@ -41,16 +40,18 @@ import {
 import { capAtMaxLogsPerWindow, pickSampleProbability } from './effective_page_limits';
 import { resolveLatestEntitiesIndexName } from '../asset_manager/resolve_entity_store_indices';
 import { executeEsqlQuery } from '../../infra/elasticsearch/esql';
+import { executeEsqlQueryRetryingRemoteResources } from '../../infra/elasticsearch/remote_resource_not_supported';
 import { ingestEntities } from '../../infra/elasticsearch/ingest';
 import { resolveClosedIndexAdjustments } from '../../infra/elasticsearch/resolve_closed_indices';
+import {
+  isPositiveInternalEsqlViewIndexPattern,
+  withInternalEsqlViewExclusions,
+} from './internal_esql_view_patterns';
 import {
   getAlertsIndexName,
   getSecuritySolutionDataViewName,
 } from '../asset_manager/external_indices_contants';
-import {
-  type LogExtractionConfig,
-  LogExtractionConfig as LogExtractionConfigSchema,
-} from '../saved_objects';
+import { type LogExtractionConfig } from '../saved_objects';
 import {
   type EngineDescriptorClient,
   type EngineLogExtractionState,
@@ -58,7 +59,7 @@ import {
 } from '../saved_objects';
 import { ENGINE_STATUS } from '../constants';
 import { EntityStoreNotRunningError } from '../errors';
-import type { LogExtractionUpdateParams } from '../../routes/constants';
+import type { LogExtractionInstallParams } from '../../routes/constants';
 
 /** Engine state with all cursor fields cleared. Used between sub-window iterations so a fresh
  * sub-window does not re-trigger recovery from cursors persisted by an earlier sub-window. */
@@ -66,6 +67,7 @@ const FRESH_ENGINE_LOG_EXTRACTION_STATE: EngineLogExtractionState = {
   checkpointTimestamp: null,
   paginationId: null,
   lastExecutionTimestamp: null,
+  sliceEndTimestamp: null,
 };
 
 interface LogsExtractionOptions {
@@ -127,15 +129,21 @@ export class LogsExtractionClient {
     this.globalStateClient = globalStateClient;
   }
 
-  private async getLogExtractionConfigAndState(
-    type: EntityType
-  ): Promise<{ config: LogExtractionConfig; engineState: EngineLogExtractionState }> {
+  private async getLogExtractionConfigAndState(type: EntityType): Promise<{
+    config: LogExtractionConfig;
+    engineState: EngineLogExtractionState;
+    excludedUserNames: string[];
+  }> {
     const engineDescriptor = await this.engineDescriptorClient.findOrThrow(type);
     if (engineDescriptor.status !== ENGINE_STATUS.STARTED) {
       throw new EntityStoreNotRunningError();
     }
     const globalState = await this.globalStateClient.findOrThrow();
-    return { config: globalState.logsExtraction, engineState: engineDescriptor.logExtractionState };
+    return {
+      config: globalState.logsExtraction,
+      engineState: engineDescriptor.logExtractionState,
+      excludedUserNames: globalState.excludedUserNames,
+    };
   }
 
   public async extractLogs(
@@ -147,8 +155,11 @@ export class LogsExtractionClient {
     let isRemote = false;
 
     try {
-      const { config, engineState } = await this.getLogExtractionConfigAndState(type);
-      const entityDefinition = getEntityDefinition(type, this.namespace);
+      const { config, engineState, excludedUserNames } = await this.getLogExtractionConfigAndState(
+        type
+      );
+      const entityDefinitionOptions = { excludedUserNames };
+      const entityDefinition = getEntityDefinition(type, this.namespace, entityDefinitionOptions);
       const {
         isRemote: resolvedIsRemote,
         count,
@@ -164,6 +175,7 @@ export class LogsExtractionClient {
         engineState,
         opts,
         entityDefinition,
+        entityDefinitionOptions,
       });
 
       isRemote = resolvedIsRemote;
@@ -193,6 +205,7 @@ export class LogsExtractionClient {
             checkpointTimestamp: null,
             paginationId: null,
             lastExecutionTimestamp: lastSearchTimestamp || moment().utc().toISOString(),
+            sliceEndTimestamp: null,
           },
           error: null,
         });
@@ -204,14 +217,15 @@ export class LogsExtractionClient {
     }
   }
 
-  public async updateConfig(params: LogExtractionUpdateParams): Promise<LogExtractionConfig> {
-    const globalState = await this.globalStateClient.findOrThrow();
-    const mergedConfig = LogExtractionConfigSchema.parse({
-      ...globalState.logsExtraction,
-      ...params,
+  public async updateConfig(
+    params: LogExtractionInstallParams | undefined,
+    excludedUserNames?: string[]
+  ): Promise<LogExtractionConfig> {
+    const state = await this.globalStateClient.update({
+      logsExtraction: params,
+      ...(excludedUserNames !== undefined ? { excludedUserNames } : {}),
     });
-    await this.globalStateClient.update({ logsExtraction: mergedConfig });
-    return mergedConfig;
+    return state.logsExtraction;
   }
 
   private async runQueryAndIngestDocs({
@@ -220,12 +234,14 @@ export class LogsExtractionClient {
     engineState,
     opts,
     entityDefinition,
+    entityDefinitionOptions,
   }: {
     type: EntityType;
     config: LogExtractionConfig;
     engineState: EngineLogExtractionState;
     opts?: LogsExtractionOptions;
     entityDefinition: ManagedEntityDefinition;
+    entityDefinitionOptions?: EntityDefinitionOptions;
   }): Promise<{
     isRemote: boolean;
     count: number;
@@ -241,7 +257,12 @@ export class LogsExtractionClient {
       config.excludedIndexPatterns
     );
 
-    const allIndexPatterns = [...localIndexPatterns, ...remoteIndexPatterns];
+    // ES|QL cannot query remote views (CPS/CCS). Exclude `$.*` on origin and on
+    // every remote cluster alias (`*:-$.*`) without naming linked projects.
+    const allIndexPatterns = withInternalEsqlViewExclusions([
+      ...localIndexPatterns,
+      ...remoteIndexPatterns,
+    ]);
 
     const mainResult = await this.runMainPath({
       type,
@@ -249,6 +270,7 @@ export class LogsExtractionClient {
       engineState,
       opts,
       entityDefinition,
+      entityDefinitionOptions,
       latestIndex: await resolveLatestEntitiesIndexName(this.esClient, this.namespace),
       indexPatterns: allIndexPatterns,
     });
@@ -275,6 +297,7 @@ export class LogsExtractionClient {
     engineState,
     opts,
     entityDefinition,
+    entityDefinitionOptions,
     indexPatterns,
     latestIndex,
   }: {
@@ -283,6 +306,7 @@ export class LogsExtractionClient {
     engineState: EngineLogExtractionState;
     opts?: LogsExtractionOptions;
     entityDefinition: ManagedEntityDefinition;
+    entityDefinitionOptions?: EntityDefinitionOptions;
     indexPatterns: string[];
     latestIndex: string;
   }): Promise<{
@@ -311,6 +335,7 @@ export class LogsExtractionClient {
         maxLogsPerPage,
         maxLogsPerWindow,
         entityDefinition,
+        entityDefinitionOptions,
       });
       let { lastSearchTimestamp } = result;
       if (result.logsCapApplied) {
@@ -397,6 +422,7 @@ export class LogsExtractionClient {
         maxLogsPerPage,
         maxLogsPerWindow: remainingCap,
         entityDefinition,
+        entityDefinitionOptions,
       });
 
       totalCount += subResult.count;
@@ -477,6 +503,7 @@ export class LogsExtractionClient {
     maxLogsPerPage,
     maxLogsPerWindow,
     entityDefinition,
+    entityDefinitionOptions,
   }: {
     type: EntityType;
     engineState: EngineLogExtractionState;
@@ -489,6 +516,7 @@ export class LogsExtractionClient {
     maxLogsPerPage: number;
     maxLogsPerWindow: number;
     entityDefinition: ManagedEntityDefinition;
+    entityDefinitionOptions?: EntityDefinitionOptions;
   }) {
     const effectiveMaxLogsPerPage = capAtMaxLogsPerWindow(maxLogsPerPage, maxLogsPerWindow);
     const effectiveDocsLimit = capAtMaxLogsPerWindow(docsLimit, maxLogsPerWindow);
@@ -514,69 +542,83 @@ export class LogsExtractionClient {
     };
     opts?.signal?.addEventListener('abort', onAbort);
 
-    /** One-shot `paginationId` from a prior run: consumed by the first bounded extraction batch for entity-level pagination. */
-    let recoveryId = initialEngineState.paginationId ?? undefined;
-    if (recoveryId) {
-      this.logger.warn(
-        `Resuming with paginationId ${recoveryId} and extraction window from ${fromDateISO} (checkpoint at ${
-          state.checkpointTimestamp ?? 'n/a'
-        }).`
-      );
-    }
+    // Mid-slice resume cursors from a prior interrupted run; consumed by the first outer
+    // iteration only, which re-enters the interrupted slice with its exact persisted bounds.
+    const { resumeEntityPagination, resumeSliceEnd } = this.resolveMidSliceResume(
+      initialEngineState,
+      fromDateISO
+    );
 
     try {
       let lastLogsPages = false;
       /** First outer iteration of this `extractLogs` run: run the boundary probe from the time window only, not the persisted log-slice start. */
       let isFirstRunInThisCycle = true;
       do {
-        const entityPagination: PaginationParams | undefined =
-          state.checkpointTimestamp && state.paginationId
-            ? { timestampCursor: state.checkpointTimestamp, idCursor: state.paginationId }
-            : undefined;
         // always find a new cursor via probe on first run
         const logsPageCursorStart = isFirstRunInThisCycle
           ? undefined
           : paginationFromOptionalFields(state.checkpointTimestamp);
 
-        const probe = await this.runLogPaginationCursorProbeForNextPage({
-          indexPatterns,
-          type,
-          fromDateISO,
-          toDateISO,
-          logsPageCursorStart,
-          maxLogsPerPage: effectiveMaxLogsPerPage,
-          sampleProbability: effectiveSampleProbability,
-          opts,
-        });
-
-        if (!probe.hasLogsToProcess && effectiveSampleProbability >= 1) {
-          // Sampling wasn't active for this probe (maxLogsPerPage was too small — see
-          // pickSampleProbability), so an empty, exact result is definitive: no real docs
-          // remain. Stop immediately rather than running a redundant sweep extraction.
-          break;
-        }
-
-        lastLogsPages = probe.isLastLogsPage;
-
         let logsPageCursorEnd: LogSlicePaginationParams;
-        if (probe.hasLogsToProcess && !probe.isLastLogsPage) {
-          logsPageCursorEnd = probe.logsPaginationCursor;
+        let entityPagination: PaginationParams | undefined;
+        let bumpedCursorEnd: LogSlicePaginationParams | null = null;
+        let sliceLogCount = 0;
+
+        if (isFirstRunInThisCycle && resumeSliceEnd) {
+          // Re-enter the interrupted slice with its exact persisted bounds, skipping the probe:
+          // the sampled probe is not deterministic, so a re-drawn boundary would strand logs of
+          // already-paged entities between the old and new slice end. The slice's log volume was
+          // counted by the interrupted run, so it does not count against this run's cap.
+          // Note: maxLogsPerWindow caps volume per task execution, not per time window - a
+          // resumed execution starts with a fresh budget, so a time window that was interrupted
+          // mid-run can consume more than one budget in total.
+          logsPageCursorEnd = resumeSliceEnd;
+          entityPagination = resumeEntityPagination;
+          lastLogsPages = false;
         } else {
-          // if the probe doesn't have more pages to process
-          // we keep the natural end of the window as the end cursor
-          // This is important because on low document count
-          // a sampled probe may return 0 documents. We need to still
-          // do a final extraction with the effective end of the window
-          // to ensure we don't miss any documents that may have been missed by the probe.
-          logsPageCursorEnd = { timestampCursor: toDateISO };
+          const probe = await this.runLogPaginationCursorProbeForNextPage({
+            indexPatterns,
+            type,
+            fromDateISO,
+            toDateISO,
+            logsPageCursorStart,
+            maxLogsPerPage: effectiveMaxLogsPerPage,
+            sampleProbability: effectiveSampleProbability,
+            opts,
+          });
+
+          if (!probe.hasLogsToProcess && effectiveSampleProbability >= 1) {
+            // Sampling wasn't active for this probe (maxLogsPerPage was too small — see
+            // pickSampleProbability), so an empty, exact result is definitive: no real docs
+            // remain. Stop immediately rather than running a redundant sweep extraction.
+            break;
+          }
+
+          lastLogsPages = probe.isLastLogsPage;
+
+          if (probe.hasLogsToProcess && !probe.isLastLogsPage) {
+            logsPageCursorEnd = probe.logsPaginationCursor;
+          } else {
+            // if the probe doesn't have more pages to process
+            // we keep the natural end of the window as the end cursor
+            // This is important because on low document count
+            // a sampled probe may return 0 documents. We need to still
+            // do a final extraction with the effective end of the window
+            // to ensure we don't miss any documents that may have been missed by the probe.
+            logsPageCursorEnd = { timestampCursor: toDateISO };
+          }
+
+          bumpedCursorEnd = this.detectLogSliceStall(
+            logsPageCursorStart,
+            logsPageCursorEnd,
+            !lastLogsPages,
+            effectiveMaxLogsPerPage
+          );
+          // Only read on the non-bumped path below: a stalled (bumped) slice is dropped, so it
+          // never counts against the volume cap.
+          sliceLogCount = probe.sliceLogCount;
         }
 
-        const bumpedCursorEnd = this.detectLogSliceStall(
-          logsPageCursorStart,
-          logsPageCursorEnd,
-          !lastLogsPages,
-          effectiveMaxLogsPerPage
-        );
         if (bumpedCursorEnd) {
           logsPageCursorEnd = bumpedCursorEnd;
           entityStoreMetrics.extractionLogsPerPageDropped.add(1, {
@@ -585,7 +627,7 @@ export class LogsExtractionClient {
             remote: false,
           });
         } else {
-          totalLogs += probe.sliceLogCount;
+          totalLogs += sliceLogCount;
 
           const sliceIngestOutcome = await this.ingestEntityPagesWithinCurrentLogPage({
             type,
@@ -593,21 +635,19 @@ export class LogsExtractionClient {
             indexPatterns,
             latestIndex,
             entityDefinition,
+            entityDefinitionOptions,
             docsLimit: effectiveDocsLimit,
             fromDateISO,
             toDateISO,
             logsPageCursorStart,
             logsPageCursorEnd,
             entityPagination,
-            recoveryId,
             state,
           });
 
           totalCount += sliceIngestOutcome.addedToTotalCount;
           pages += sliceIngestOutcome.addedToPageCount;
           state = sliceIngestOutcome.state;
-
-          recoveryId = undefined;
         }
 
         state = this.advanceEngineStateAfterLogPageCompletes(state, logsPageCursorEnd);
@@ -660,26 +700,29 @@ export class LogsExtractionClient {
     sampleProbability: number;
     opts?: LogsExtractionOptions;
   }): Promise<LogPaginationCursor> {
-    const logPaginationCursorProbeQuery = buildLogPaginationCursorProbeEsql({
-      indexPatterns,
-      type,
-      fromDateISO,
-      toDateISO,
-      logsPageCursorStart,
-      maxLogsPerPage,
-      sampleProbability,
-    });
-
     const probeStart = Date.now();
-    const logPaginationCursorProbeResponse = await executeEsqlQuery({
-      esClient: this.esClient,
-      query: logPaginationCursorProbeQuery,
-      signal: opts?.signal,
-      telemetry: {
-        name: 'probe_query',
-        namespace: this.namespace,
-        type,
-      },
+    const logPaginationCursorProbeResponse = await executeEsqlQueryRetryingRemoteResources({
+      indexPatterns,
+      logger: this.logger,
+      execute: (patterns) =>
+        executeEsqlQuery({
+          esClient: this.esClient,
+          query: buildLogPaginationCursorProbeEsql({
+            indexPatterns: patterns,
+            type,
+            fromDateISO,
+            toDateISO,
+            logsPageCursorStart,
+            maxLogsPerPage,
+            sampleProbability,
+          }),
+          signal: opts?.signal,
+          telemetry: {
+            name: 'probe_query',
+            namespace: this.namespace,
+            type,
+          },
+        }),
     });
     entityStoreMetrics.extractionProbeQueryDurationMs.record(Date.now() - probeStart, {
       entity_type: type,
@@ -713,13 +756,13 @@ export class LogsExtractionClient {
     indexPatterns,
     latestIndex,
     entityDefinition,
+    entityDefinitionOptions,
     docsLimit,
     fromDateISO,
     toDateISO,
     logsPageCursorStart,
     logsPageCursorEnd,
     entityPagination,
-    recoveryId,
     state: initialSliceState,
   }: {
     type: EntityType;
@@ -727,13 +770,13 @@ export class LogsExtractionClient {
     indexPatterns: string[];
     latestIndex: string;
     entityDefinition: ManagedEntityDefinition;
+    entityDefinitionOptions?: EntityDefinitionOptions;
     docsLimit: number;
     fromDateISO: string;
     toDateISO: string;
     logsPageCursorStart: LogSlicePaginationParams | undefined;
     logsPageCursorEnd: LogSlicePaginationParams;
     entityPagination: PaginationParams | undefined;
-    recoveryId: string | undefined;
     state: EngineLogExtractionState;
   }): Promise<{
     addedToTotalCount: number;
@@ -745,29 +788,24 @@ export class LogsExtractionClient {
     let addedToPageCount = 0;
 
     let pagination = entityPagination;
-    let recoveryIdForBounded = recoveryId;
 
     do {
       const query = buildLogsExtractionEsqlQuery({
         indexPatterns,
         latestIndex,
         entityDefinition,
+        entityDefinitionOptions,
         docsLimit,
         fromDateISO,
         toDateISO,
         pagination,
-        recoveryId: recoveryIdForBounded,
         logsPageCursorStart,
         logsPageCursorEnd,
       });
 
-      recoveryIdForBounded = undefined;
-
       this.logger.debug(
         `Running query to extract logs from ${fromDateISO} to ${toDateISO} ${
-          pagination
-            ? `with pagination: ${pagination.timestampCursor} | ${pagination.idCursor}`
-            : ''
+          pagination ? `with entity page cursor: ${pagination.idCursor}` : ''
         }`
       );
 
@@ -810,7 +848,6 @@ export class LogsExtractionClient {
         esClient: this.esClient,
         esqlResponse,
         esIdField: HASHED_ID_FIELD,
-        fieldsToIgnore: [ENGINE_METADATA_PAGINATION_FIRST_SEEN_LOG_FIELD],
         targetIndex: latestIndex,
         logger: this.logger,
         signal: opts?.signal,
@@ -834,10 +871,16 @@ export class LogsExtractionClient {
       });
 
       if (pagination) {
+        // Pin both slice bounds alongside the entity cursor: the id cursor is only meaningful
+        // together with the exact bounds it was created under. The start is pinned explicitly
+        // because on the first slice of a first-ever cycle the persisted checkpoint is null and
+        // the fallback window start (now - lookbackPeriod) moves between runs; for later slices
+        // this equals the checkpoint already, so it is a no-op.
         state = {
           ...state,
-          checkpointTimestamp: pagination.timestampCursor,
+          checkpointTimestamp: logsPageCursorStart?.timestampCursor ?? fromDateISO,
           paginationId: pagination.idCursor,
+          sliceEndTimestamp: logsPageCursorEnd.timestampCursor,
         };
         await this.persistMainLogExtractionStateIfNotManualWindow(type, opts, state);
       }
@@ -847,7 +890,8 @@ export class LogsExtractionClient {
   }
 
   /**
-   * After all entity pages for a slice: drop entity + slice-end fields and advance the log-slice cursor to the slice end.
+   * After all entity pages for a slice: clear the entity cursor and pinned slice end, and
+   * advance the log-slice cursor to the slice end.
    */
   private advanceEngineStateAfterLogPageCompletes(
     state: EngineLogExtractionState,
@@ -857,6 +901,43 @@ export class LogsExtractionClient {
       ...state,
       checkpointTimestamp: logsPageCursorEnd.timestampCursor,
       paginationId: null,
+      sliceEndTimestamp: null,
+    };
+  }
+
+  /**
+   * Resolves mid-slice resume cursors from persisted state. Both cursors are returned only when
+   * the pinned slice end is present: the sampled boundary probe is not deterministic, so resuming
+   * an id cursor against a re-drawn slice end would strand the logs of already-paged entities
+   * that fall between the old and new boundary.
+   */
+  private resolveMidSliceResume(
+    initialEngineState: EngineLogExtractionState,
+    fromDateISO: string
+  ): {
+    resumeEntityPagination?: PaginationParams;
+    resumeSliceEnd?: LogSlicePaginationParams;
+  } {
+    const { paginationId, sliceEndTimestamp } = initialEngineState;
+    if (!paginationId) {
+      return {};
+    }
+    if (!sliceEndTimestamp) {
+      // An id cursor is only meaningful together with the exact slice bounds it was created
+      // under. Without a pinned slice end those bounds cannot be reproduced (the probe is
+      // sampled), so discard the cursor and re-process the slice from the checkpoint; upserts
+      // are idempotent, so re-processing is safe.
+      this.logger.warn(
+        `Found a mid-slice entity cursor (${paginationId}) without a pinned slice end. Discarding the cursor and re-processing the slice from ${fromDateISO}.`
+      );
+      return {};
+    }
+    this.logger.warn(
+      `Resuming mid-slice with entity cursor ${paginationId} and pinned slice end ${sliceEndTimestamp} (window from ${fromDateISO}).`
+    );
+    return {
+      resumeEntityPagination: { idCursor: paginationId },
+      resumeSliceEnd: { timestampCursor: sliceEndTimestamp },
     };
   }
 
@@ -928,12 +1009,14 @@ export class LogsExtractionClient {
   ): Promise<{ localIndexPatterns: string[]; remoteIndexPatterns: string[] }> {
     const all = await this.getAllIndexPatternsIncludingRemote(additionalIndexPatterns);
     const alertsIndex = getAlertsIndexName(this.namespace);
-    const withoutAlerts = all.filter((index) => index !== alertsIndex);
+    const withoutAlertsOrEsqlViews = all
+      .filter((index) => index !== alertsIndex)
+      .filter((index) => !isPositiveInternalEsqlViewIndexPattern(index));
 
     const localIndexPatterns: string[] = [];
     const remoteIndexPatterns: string[] = [];
 
-    withoutAlerts.forEach((index) => {
+    withoutAlertsOrEsqlViews.forEach((index) => {
       if (isNonLocalIndexName(index)) {
         remoteIndexPatterns.push(index);
       } else {

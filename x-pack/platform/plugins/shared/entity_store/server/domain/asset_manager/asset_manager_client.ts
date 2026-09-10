@@ -132,19 +132,19 @@ export class AssetManagerClient {
     request: KibanaRequest,
     entityTypes: EntityType[],
     logsExtractionParams?: LogExtractionInstallParams,
-    historySnapshotParams?: HistorySnapshotBodyParams
+    historySnapshotParams?: HistorySnapshotBodyParams,
+    excludedUserNames?: string[]
   ) {
     try {
-      const existingState = await this.globalStateClient.find();
-      const logsExtraction = resolveLogsExtractionOnInstall(
-        existingState?.logsExtraction,
-        logsExtractionParams
-      );
       const historySnapshot = HistorySnapshotState.parse(historySnapshotParams ?? {});
 
       // Phase 1: Install shared ES assets/storage and run independent setup tasks.
-      await Promise.all([
-        this.globalStateClient.init({ historySnapshot, logsExtraction }),
+      const [globalState] = await Promise.all([
+        this.globalStateClient.init({
+          historySnapshot,
+          logsExtraction: logsExtractionParams,
+          excludedUserNames,
+        }),
 
         // V1 cleanup is legacy migration work — run it as the internal user so enabling the
         // entity store does not require the user to hold transform/enrich/index admin on v1 assets.
@@ -181,7 +181,9 @@ export class AssetManagerClient {
       // schedules are created — those tasks self-delete when they find zero engines,
       // so scheduling them in parallel with initEntity can tear down a freshly
       // scheduled status task mid-install.
-      await Promise.all(entityTypes.map((type) => this.initEntity(request, type, logsExtraction)));
+      await Promise.all(
+        entityTypes.map((type) => this.initEntity(request, type, globalState.logsExtraction))
+      );
 
       // Phase 3: Schedule namespace-scoped background tasks after descriptors exist.
       await Promise.all([
@@ -343,11 +345,13 @@ export class AssetManagerClient {
 
   public async getStatus(withComponents: boolean = false): Promise<GetStatusResult> {
     try {
-      const [engines, { historySnapshot, logsExtraction: logsExtractionConfig }] =
-        await Promise.all([
-          this.engineDescriptorClient.getAll(),
-          this.globalStateClient.findOrThrow(),
-        ]);
+      const [
+        engines,
+        { historySnapshot, logsExtraction: logsExtractionConfig, excludedUserNames },
+      ] = await Promise.all([
+        this.engineDescriptorClient.getAll(),
+        this.globalStateClient.findOrThrow(),
+      ]);
 
       const status = this.calculateEntityStoreStatus(engines);
 
@@ -360,10 +364,11 @@ export class AssetManagerClient {
           engines: enginesWithComponents,
           historySnapshot,
           logsExtractionConfig,
+          excludedUserNames,
         };
       }
 
-      return { status, engines, historySnapshot, logsExtractionConfig };
+      return { status, engines, historySnapshot, logsExtractionConfig, excludedUserNames };
     } catch (error) {
       if (SavedObjectsErrorHelpers.isNotFoundError(error)) {
         return { status: ENTITY_STORE_STATUS.NOT_INSTALLED, engines: [] };
@@ -696,18 +701,4 @@ export class AssetManagerClient {
 
     return ENTITY_STORE_STATUS.RUNNING;
   }
-}
-
-function resolveLogsExtractionOnInstall(
-  existing: LogExtractionConfig | undefined,
-  params: LogExtractionInstallParams | undefined
-): LogExtractionConfig {
-  const hasParams = params !== undefined && Object.keys(params).length > 0;
-  if (hasParams) {
-    return LogExtractionConfig.parse(params);
-  }
-  if (existing !== undefined) {
-    return existing;
-  }
-  return LogExtractionConfig.parse({});
 }
