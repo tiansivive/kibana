@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "lib": ["esnext"],
+    "target": "esnext",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "types": ["node", "jest"],
+    "typeRoots": ["../../../../../../node_modules/@types"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["target/**/*"]
+}
