@@ -7,13 +7,15 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../vocabulary/esql_type';
 import type { CommandNode, Named, QueryAst, SortSpec } from '../surface/query';
 import type { AnyExpr, Expr, TyOf } from './expr';
 import { mk } from './expr';
+import type { ExprType, Inferred } from './inferred';
 import type { Scalarish, Simplify } from './kinds';
 
 declare const schemaBrand: unique symbol;
+declare const lacksBrand: unique symbol;
+declare const droppedBrand: unique symbol;
 
 /**
  * An immutable query. `G` is the schema of the rows flowing out of the last stage.
@@ -26,40 +28,67 @@ export interface Q<G extends object> {
   append<B extends object>(command: CommandNode): Q<B>;
   pipe<B extends object>(stage: Stage<G, B>): Q<B>;
   where(f: (c: Cols<G>) => Expr<'boolean', Scalarish>): Q<G>;
-  eval<N extends string, T extends EsqlType>(
+  eval<N extends string, T extends ExprType>(
     name: N,
     f: (c: Cols<G>) => Expr<T, Scalarish>
-  ): Q<Simplify<Omit<G, N> & Record<N, T>>>;
+  ): Q<Extend<G, N, T>>;
   stats<
-    A extends Record<string, Expr<EsqlType, 'agg'>>,
-    B extends Record<string, Expr<EsqlType, 'scalar' | 'grouping'>> = {}
+    A extends Record<string, Expr<ExprType, 'agg'>>,
+    B extends Record<string, Expr<ExprType, 'scalar' | 'grouping'>> = {}
   >(
     aggs: (c: Cols<G>) => A,
     by?: (c: Cols<G>) => B
   ): Q<Simplify<TyOf<A> & TyOf<B>>>;
   keep<K extends keyof G & string>(...columns: K[]): Q<Simplify<Pick<G, K>>>;
-  drop<K extends keyof G & string>(...columns: K[]): Q<Simplify<Omit<G, K>>>;
-  sort(f: (c: Cols<G>) => ReadonlyArray<Expr<EsqlType, Scalarish> | SortKey>): Q<G>;
+  drop<K extends keyof G & string>(...columns: K[]): Q<Remove<G, K>>;
+  sort(f: (c: Cols<G>) => ReadonlyArray<Expr<ExprType, Scalarish> | SortKey>): Q<G>;
   limit(n: number): Q<G>;
 }
 
-/** The columns visible to a stage's callback. Each is a scalar expression of the column's type. */
+/**
+ * The columns visible to a stage's callback. Each is a scalar expression of the column's type. A
+ * column dropped from an open row is `Dropped`, which no function accepts.
+ */
 export type Cols<G> = {
-  readonly [K in keyof G & string]: [G[K]] extends [EsqlType] ? Expr<G[K], 'scalar'> : never;
-};
+  readonly [K in keyof G & string]: [G[K]] extends [ExprType] ? Expr<G[K], 'scalar'> : never;
+} & { readonly [K in Lacked<G>]: Dropped };
 
 export type Stage<A extends object, B extends object> = (q: Q<A>) => Q<B>;
 
-export const from = <G extends Record<keyof G, EsqlType>>(...indices: string[]): Q<G> =>
-  makeQ<G>({ source: { tag: 'from', indices }, pipe: [] });
+/**
+ * The source of a query. Without a schema the columns are open: any name can be read and its type
+ * is `Inferred`, and `typecheck` works out the types from how the columns are used.
+ */
+export const from = <G extends Record<keyof G, ExprType> = OpenSchema>(
+  ...indices: string[]
+): Q<G> => makeQ<G>({ source: { tag: 'from', indices }, pipe: [] });
 
-/** Schema of a source whose columns are not known statically. Their types are inferred by `analyze`. */
+/** Schema of a source whose columns are not known statically. */
 export interface OpenSchema {
-  readonly [column: string]: never;
+  readonly [column: string]: Inferred;
 }
 
-export const fromOpen = (...indices: string[]): Q<OpenSchema> =>
-  makeQ<OpenSchema>({ source: { tag: 'from', indices }, pipe: [] });
+/** A column dropped from an open row. Reading it is a type error, as it is an error in ES|QL. */
+export interface Dropped {
+  readonly [droppedBrand]: true;
+}
+
+/** A row's schema after `EVAL` adds or replaces the column `N`. */
+type Extend<G, N extends string, T extends ExprType> = Simplify<
+  Omit<G, N | typeof lacksBrand> & Record<N, T> & Lacking<Exclude<Lacked<G>, N>>
+>;
+
+/**
+ * A row's schema after `DROP`. A closed row loses the column. An open row cannot, since it is any
+ * column, so it remembers the columns it lacks.
+ */
+type Remove<G, K extends string> = string extends keyof G
+  ? Simplify<Omit<G, K | typeof lacksBrand> & Lacking<Lacked<G> | K>>
+  : Simplify<Omit<G, K>>;
+
+type Lacked<G> = G extends { readonly [lacksBrand]: infer L extends string } ? L : never;
+
+type Lacking<L extends string> = [L] extends [never] ? {} : { readonly [lacksBrand]: L };
 
 export const where =
   <G extends object>(f: (c: Cols<G>) => Expr<'boolean', Scalarish>): Stage<G, G> =>
@@ -67,18 +96,18 @@ export const where =
     q.append({ tag: 'where', cond: f(cols<G>()).node });
 
 export const evalAs =
-  <G extends object, N extends string, T extends EsqlType>(
+  <G extends object, N extends string, T extends ExprType>(
     name: N,
     f: (c: Cols<G>) => Expr<T, Scalarish>
-  ): Stage<G, Simplify<Omit<G, N> & Record<N, T>>> =>
+  ): Stage<G, Extend<G, N, T>> =>
   (q) =>
     q.append({ tag: 'eval', name, expr: f(cols<G>()).node });
 
 export const stats =
   <
     G extends object,
-    A extends Record<string, Expr<EsqlType, 'agg'>>,
-    B extends Record<string, Expr<EsqlType, 'scalar' | 'grouping'>> = {}
+    A extends Record<string, Expr<ExprType, 'agg'>>,
+    B extends Record<string, Expr<ExprType, 'scalar' | 'grouping'>> = {}
   >(
     aggs: (c: Cols<G>) => A,
     by?: (c: Cols<G>) => B
@@ -96,13 +125,13 @@ export const keep =
     q.append({ tag: 'keep', cols: columns });
 
 export const drop =
-  <G extends object, K extends keyof G & string>(...columns: K[]): Stage<G, Simplify<Omit<G, K>>> =>
+  <G extends object, K extends keyof G & string>(...columns: K[]): Stage<G, Remove<G, K>> =>
   (q) =>
     q.append({ tag: 'drop', cols: columns });
 
 export const sort =
   <G extends object>(
-    f: (c: Cols<G>) => ReadonlyArray<Expr<EsqlType, Scalarish> | SortKey>
+    f: (c: Cols<G>) => ReadonlyArray<Expr<ExprType, Scalarish> | SortKey>
   ): Stage<G, G> =>
   (q) =>
     q.append({
@@ -121,11 +150,11 @@ export const limit =
     return q.append({ tag: 'limit', n });
   };
 
-export const asc = (e: Expr<EsqlType, Scalarish>): SortKey => ({
+export const asc = (e: Expr<ExprType, Scalarish>): SortKey => ({
   sort: { expr: e.node, dir: 'asc' },
 });
 
-export const desc = (e: Expr<EsqlType, Scalarish>): SortKey => ({
+export const desc = (e: Expr<ExprType, Scalarish>): SortKey => ({
   sort: { expr: e.node, dir: 'desc' },
 });
 
@@ -158,4 +187,4 @@ const cols = <G>(): Cols<G> =>
 const entriesOf = (record: Record<string, AnyExpr>): Named[] =>
   Object.entries(record).map(([name, e]) => ({ name, expr: e.node }));
 
-const isSortKey = (x: Expr<EsqlType, Scalarish> | SortKey): x is SortKey => 'sort' in x;
+const isSortKey = (x: Expr<ExprType, Scalarish> | SortKey): x is SortKey => 'sort' in x;
