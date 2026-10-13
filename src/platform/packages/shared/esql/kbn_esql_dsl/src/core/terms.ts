@@ -61,6 +61,7 @@ export type CoreCommand =
     }
   | { readonly tag: 'keep'; readonly cols: readonly string[] }
   | { readonly tag: 'drop'; readonly cols: readonly string[] }
+  | { readonly tag: 'rename'; readonly from: string; readonly to: string }
   | { readonly tag: 'sort'; readonly keys: readonly CoreSort[] }
   | { readonly tag: 'limit'; readonly n: number };
 

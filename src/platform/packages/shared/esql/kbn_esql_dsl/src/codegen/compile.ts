@@ -66,6 +66,11 @@ const command = (cmd: CoreCommand): ESQLAstCommand => {
         name: 'sort',
         args: cmd.keys.map((k) => order(expression(k.expr), k.dir)),
       });
+    case 'rename':
+      return Builder.command({
+        name: 'rename',
+        args: [Builder.expression.func.binary('as', [column(cmd.from), column(cmd.to)])],
+      });
     case 'limit':
       return Builder.command({
         name: 'limit',
@@ -88,6 +93,12 @@ const column = (name: string): ESQLAstExpression => Builder.expression.column(na
 
 const assignment = (name: string, value: ESQLAstExpression): ESQLAstExpression =>
   Builder.expression.func.binary('=', [column(name), value]);
+
+/** The operators ES|QL writes after their operand. */
+const POSTFIX = new Map<string, string>([
+  ['is_null', 'is null'],
+  ['is_not_null', 'is not null'],
+]);
 
 /** The operators ES|QL writes between its operands, and how tightly each binds. */
 const OPERATORS = new Map<string, { symbol: '+' | '>' | '==' | 'and' | 'or'; level: string }>([
@@ -117,7 +128,11 @@ const expression = (e: CoreExpr): ESQLAstExpression => {
       return expression(e.expr);
     case 'call': {
       const operator = OPERATORS.get(e.fn);
+      const postfix = POSTFIX.get(e.fn);
       const [left, right] = e.args;
+      if (postfix !== undefined && left !== undefined) {
+        return Builder.expression.func.postfix(postfix, expression(left));
+      }
       return operator !== undefined && left !== undefined && right !== undefined
         ? Builder.expression.func.binary(operator.symbol, [
             operand(left, operator.level, 'left'),

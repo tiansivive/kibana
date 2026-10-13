@@ -24,11 +24,17 @@ export {
   count,
   eq,
   gt,
+  isNotNull,
+  isNull,
+  kql,
   max,
+  mvPseriesWeightedSum,
   or,
   round,
   substring,
   sum,
+  toBase64,
+  toKeyword,
   top,
   typed,
 } from './dsl/functions';
@@ -48,4 +54,16 @@ export type { Diagnostic, DiagnosticCode } from './diagnostics/diagnostic';
 export type { Location } from './diagnostics/location';
 export type { CommandNode, QueryAst, SortSpec } from './surface/query';
 export type { Cols, Dropped, OpenSchema, Q, SortKey, Stage } from './dsl/query';
-export { asc, desc, drop, evalAs, from, keep, limit, sort, stats, where } from './dsl/query';
+export {
+  asc,
+  desc,
+  drop,
+  evalAs,
+  from,
+  keep,
+  limit,
+  rename,
+  sort,
+  stats,
+  where,
+} from './dsl/query';

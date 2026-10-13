@@ -134,6 +134,14 @@ const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step
         emit: merge(...cmd.cols.map((name) => demand(row, name, columns).emit)),
       };
     }
+    case 'rename': {
+      const found = demand(row, cmd.from, Locate.field(location, 'from'));
+      return {
+        row: define(cmd.from === cmd.to ? row : drop(row, [cmd.from]), cmd.to, found.type),
+        core: { tag: 'rename', from: cmd.from, to: cmd.to },
+        emit: found.emit,
+      };
+    }
     case 'sort': {
       const keys = cmd.keys.map((key, i) => {
         const at = Locate.sortKey(location, i);

@@ -66,6 +66,9 @@ const scalar = (...params: readonly ParamKind[]): KindSignature => ({ params, re
 
 const aggregate = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'agg' });
 
+/** A function that gives a per-row value even when all its arguments are constants. */
+const perRow = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'scalar' });
+
 /** The kind of every argument after the listed parameters. */
 const variadic = (kinds: KindSignature, rest: ParamKind): KindSignature => ({ ...kinds, rest });
 
@@ -102,6 +105,19 @@ export const functions: readonly LibraryFunction[] = [
     [requires('Norm', s, keyword), requires('Norm', t, keyword), requires('Norm', u, keyword)],
     variadic(scalar('k', 'k'), 'k'),
     { rest: u }
+  ),
+  fn('is_null', [a], boolean, [], scalar('k')),
+  fn('is_not_null', [a], boolean, [], scalar('k')),
+  // `x::keyword` is TO_STRING, which takes every type
+  fn('to_string', [a], keyword, [], scalar('k')),
+  fn('to_base64', [s], keyword, [requires('Norm', s, keyword)], scalar('k')),
+  fn('kql', [s], boolean, [requires('Norm', s, keyword)], perRow('const')),
+  fn(
+    'mv_pseries_weighted_sum',
+    [a, double],
+    double,
+    [requires('Numeric', a)],
+    scalar('k', 'const')
   ),
   fn('add', [a, b], c, [requires('Arith', a, b, c)], scalar('k', 'k')),
   fn('greater_than', [a, b], boolean, [requires('Comparable', a, b)], scalar('k', 'k')),

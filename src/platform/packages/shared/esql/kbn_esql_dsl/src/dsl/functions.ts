@@ -116,6 +116,30 @@ export const concat = <
   ...rest: Rest<Text, R>
 ): Expr<'keyword', JoinAll<Join<KA, KB>, R>> => call('concat', first, second, ...rest);
 
+export const isNull = <K extends Operand>(e: Expr<ExprType, K>): Expr<'boolean', K> =>
+  call('is_null', e);
+
+export const isNotNull = <K extends Operand>(e: Expr<ExprType, K>): Expr<'boolean', K> =>
+  call('is_not_null', e);
+
+/** `TO_STRING`, which is what `x::keyword` means. */
+export const toKeyword = <K extends Operand>(e: Expr<ExprType, K>): Expr<'keyword', K> =>
+  call('to_string', e);
+
+export const toBase64 = <K extends Operand>(
+  e: Expr<keyof typeof STRING | Inferred, K>
+): Expr<'keyword', K> => call('to_base64', e);
+
+/** The query is a constant string. The columns it names are not checked. */
+export const kql = (
+  query: Expr<keyof typeof STRING | Inferred, 'const'>
+): Expr<'boolean', 'scalar'> => call('kql', query);
+
+export const mvPseriesWeightedSum = <T extends keyof typeof ABS | Inferred, K extends Operand>(
+  values: Expr<T, K>,
+  p: Expr<'double', 'const'>
+): Expr<'double', K> => call('mv_pseries_weighted_sum', values, p);
+
 /** Aggregates take per-row arguments, so an aggregate nested in an aggregate is rejected. */
 export const avg = <T extends keyof typeof AVG | Inferred>(
   e: Expr<T, Scalarish>

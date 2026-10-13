@@ -47,6 +47,18 @@ describe('callKind', () => {
   });
 });
 
+describe('callKind: results that are always per row', () => {
+  it('gives KQL a per-row value even from a constant, and requires a constant query', () => {
+    expect(call('kql', 'const')).toEqual({ kind: 'scalar', codes: [] });
+    expect(call('kql', 'scalar').codes).toEqual(['constant_required']);
+  });
+
+  it('keeps the weight of a weighted sum constant and takes the kind of its values', () => {
+    expect(call('mv_pseries_weighted_sum', 'agg', 'const')).toEqual({ kind: 'agg', codes: [] });
+    expect(call('mv_pseries_weighted_sum', 'agg', 'scalar').codes).toEqual(['constant_required']);
+  });
+});
+
 describe('callKind: further arguments', () => {
   it('gives the further arguments of a variadic function the kind of its rest', () => {
     expect(call('coalesce', 'const', 'const', 'const')).toEqual({ kind: 'const', codes: [] });

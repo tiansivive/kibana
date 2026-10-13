@@ -19,7 +19,7 @@ export type Kind = 'const' | 'scalar' | 'agg' | 'grouping';
 /**
  * How a function uses kinds, written beside its type. Each parameter is `const` (must be a
  * constant), `scalar` (a per-row or constant value, never an aggregate) or `k` (any kind). The
- * result is `agg`, `grouping`, or `k`, the join of the arguments given to the `k` parameters. A
+ * result is `scalar` (a per-row value whatever the arguments), `agg`, `grouping`, or `k`, the join of the arguments given to the `k` parameters. A
  * scalar function is `(k, k) -> k`, an aggregate is `(scalar, const) -> agg`. A function that
  * takes further arguments says what kind they are in `rest`.
  */
@@ -30,4 +30,4 @@ export interface KindSignature {
 }
 
 export type ParamKind = 'const' | 'scalar' | 'k';
-export type ResultKind = 'agg' | 'grouping' | 'k';
+export type ResultKind = 'scalar' | 'agg' | 'grouping' | 'k';
