@@ -1,0 +1,169 @@
+/*
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
+ */
+
+import { call, param } from '../../../dsl/expr';
+import type { AnyExpr } from '../../../dsl/expr';
+import { fromOpen } from '../../../dsl/query';
+import { ESQL_TYPES } from '../../../esql_type';
+import type { EsqlType } from '../../../esql_type';
+import { typecheck } from '../../../typecheck';
+import { standardLibrary } from './standard';
+import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';
+
+/**
+ * The standard library against the published tables, for every combination of types. A table
+ * says what ES|QL accepts. The library must accept at least that, and where a function matches a
+ * general protocol exactly it must accept nothing more.
+ */
+
+const lookup = (table: Readonly<Record<string, unknown>>, ...keys: readonly string[]): unknown =>
+  keys.reduce<unknown>(
+    (acc, key) =>
+      typeof acc === 'object' && acc !== null && key in acc ? Reflect.get(acc, key) : undefined,
+    table
+  );
+
+const scalarResult = (
+  fn: string,
+  ...types: readonly EsqlType[]
+): readonly EsqlType[] | undefined => {
+  const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
+  const analysis = typecheck(
+    fromOpen('i').eval('r', () => call<EsqlType, 'scalar'>(fn, ...args)).ast
+  );
+  return analysis.ok ? analysis.output.columns.get('r') : undefined;
+};
+
+const aggregateResult = (
+  fn: string,
+  ...types: readonly EsqlType[]
+): readonly EsqlType[] | undefined => {
+  const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
+  const analysis = typecheck(
+    fromOpen('i').stats(() => ({ r: call<EsqlType, 'agg'>(fn, ...args) })).ast
+  );
+  return analysis.ok ? analysis.output.columns.get('r') : undefined;
+};
+
+const pairs: readonly (readonly [EsqlType, EsqlType])[] = ESQL_TYPES.flatMap((a) =>
+  ESQL_TYPES.map((b): readonly [EsqlType, EsqlType] => [a, b])
+);
+
+describe('standard library against the published tables', () => {
+  it.each([
+    ['add', ADD],
+    ['greater_than', GREATER_THAN],
+    ['equals', EQUALS],
+  ])('%s accepts exactly the published pairs and gives the published result', (fn, table) => {
+    pairs.forEach(([a, b]) => {
+      const published = lookup(table, a, b);
+      const result = scalarResult(fn, a, b);
+      expect({ fn, a, b, result }).toEqual({
+        fn,
+        a,
+        b,
+        result: typeof published === 'string' ? [published] : undefined,
+      });
+    });
+  });
+
+  it('abs accepts exactly the published types and returns the same type', () => {
+    ESQL_TYPES.forEach((ty) => {
+      expect({ ty, result: scalarResult('abs', ty) }).toEqual({
+        ty,
+        result: lookup(ABS, ty) === undefined ? undefined : [ty],
+      });
+    });
+  });
+
+  it('avg accepts exactly the published types', () => {
+    ESQL_TYPES.forEach((ty) => {
+      expect({ ty, result: aggregateResult('avg', ty) }).toEqual({
+        ty,
+        result: lookup(AVG, ty) === undefined ? undefined : ['double'],
+      });
+    });
+  });
+
+  it('sum accepts exactly the published types and widens integral types to long', () => {
+    ESQL_TYPES.forEach((ty) => {
+      const published = lookup(SUM, ty);
+      expect({ ty, result: aggregateResult('sum', ty) }).toEqual({
+        ty,
+        result: typeof published === 'string' ? [published] : undefined,
+      });
+    });
+  });
+
+  it('max accepts exactly the published types and normalises text to keyword', () => {
+    ESQL_TYPES.forEach((ty) => {
+      const published = lookup(MAX, ty);
+      expect({ ty, result: aggregateResult('max', ty) }).toEqual({
+        ty,
+        result: typeof published === 'string' ? [published] : undefined,
+      });
+    });
+  });
+
+  it('top accepts at least the published types and normalises text to keyword', () => {
+    Object.entries(TOP).forEach(([ty, published]) => {
+      const type = ESQL_TYPES.find((candidate) => candidate === ty);
+      expect(type).toBeDefined();
+      if (type) {
+        expect({ ty, result: aggregateResult('top', type, 'integer', 'keyword') }).toEqual({
+          ty,
+          result: [published],
+        });
+      }
+    });
+  });
+
+  it('count accepts any type, and round takes a numeric value', () => {
+    ESQL_TYPES.forEach((ty) => expect(aggregateResult('count', ty)).toEqual(['long']));
+    ESQL_TYPES.forEach((ty) => {
+      expect({ ty, result: scalarResult('round', ty) }).toEqual({
+        ty,
+        result: lookup(ABS, ty) === undefined ? undefined : [ty],
+      });
+    });
+  });
+});
+
+describe('arithmetic is one fact about types', () => {
+  const rows = (protocol: string): readonly string[] =>
+    (standardLibrary.instances.get(protocol) ?? []).map((row) => row.join(','));
+
+  it('Arith holds exactly the published rows of addition', () => {
+    const published = Object.entries(ADD).flatMap(([a, row]) =>
+      Object.entries(row).map(([b, c]) => [a, b, c].join(','))
+    );
+    expect([...rows('Arith')].toSorted()).toEqual([...new Set(published)].toSorted());
+  });
+
+  it('numeric rows give the least upper bound along integer < long < double', () => {
+    const chain: readonly EsqlType[] = ['integer', 'long', 'double'];
+    const lub = (a: EsqlType, b: EsqlType): EsqlType =>
+      chain[Math.max(chain.indexOf(a), chain.indexOf(b))];
+    const numeric = (standardLibrary.instances.get('Arith') ?? []).filter((row) =>
+      row.every((ty) => chain.includes(ty))
+    );
+    expect(numeric).toHaveLength(9);
+    numeric.forEach(([a, b, c]) => expect(c).toBe(lub(a, b)));
+  });
+
+  it('comparison pairs are symmetric, and equality takes everything ordering takes', () => {
+    const comparable = new Set(rows('Comparable'));
+    const equatable = new Set(rows('Equatable'));
+    [...comparable].forEach((pair) => {
+      const [a, b] = pair.split(',');
+      expect(comparable.has(`${b},${a}`)).toBe(true);
+      expect(equatable.has(pair)).toBe(true);
+    });
+  });
+});

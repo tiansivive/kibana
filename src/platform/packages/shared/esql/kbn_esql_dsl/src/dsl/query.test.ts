@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import { add, and, avg, count, eq, from, gt, lit, round, sum, where } from '.';
+import { add, and, avg, count, eq, from, gt, lit, round, sum, where } from '..';
 
 interface Doc {
   'host.name': 'keyword';
@@ -40,7 +40,7 @@ describe('query construction', () => {
     const q = from<Doc>('logs-*')
       .where((c) => and(gt(c.bytes, lit.long(1)), eq(c['host.name'], lit.str('a'))))
       .stats(
-        (c) => ({ total: sum(c.bytes), avgRisk: round(avg(c.risk), lit.int(2)), n: count() }),
+        (c) => ({ total: sum(c.bytes), avgRisk: round(avg(c.risk)), n: count(c.bytes) }),
         (c) => ({ host: c['host.name'] })
       )
       .eval('doubled', (c) => add(c.total, c.total))

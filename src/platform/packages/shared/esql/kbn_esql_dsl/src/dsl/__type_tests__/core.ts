@@ -12,8 +12,8 @@
  * and an `@ts-expect-error` that no longer fires is TS2578.
  */
 
-import type { Cols, Q, Stage } from '..';
-import { abs, add, and, avg, count, eq, from, gt, lit, max, round, sum, top, where } from '..';
+import type { Cols, Q, Stage } from '../..';
+import { abs, add, and, avg, count, eq, from, gt, lit, max, round, sum, top, where } from '../..';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
   ? true
@@ -40,8 +40,8 @@ const summary = logs()
   .stats(
     (c) => ({
       total: sum(c.bytes),
-      avgRisk: round(avg(c.risk), lit.int(2)),
-      n: count(),
+      avgRisk: round(avg(c.risk)),
+      n: count(c.bytes),
       worst: max(c.risk),
       top3: top(c.status, lit.int(3), lit.str('desc')),
     }),
@@ -98,7 +98,7 @@ logs().stats((c) => ({ x: avg(max(c.risk)) }));
 logs().stats((c) => ({ x: c.bytes }));
 
 logs().stats(
-  (c) => ({ n: count() }),
+  (c) => ({ n: count(c.bytes) }),
   // @ts-expect-error BY takes scalars or grouping functions, not aggregates
   (c) => ({ k: avg(c.risk) })
 );
@@ -108,8 +108,8 @@ logs().stats((c) => ({ x: add(avg(c.risk), c.risk) }));
 
 // --- negative: constant parameters ------------------------------------------------------------
 
-// @ts-expect-error decimals must be a constant, not a column
-logs().eval('r', (c) => round(c.risk, c.status));
+// @ts-expect-error the limit must be a constant, not a column
+logs().stats((c) => ({ t: top(c.risk, c.status, lit.str('desc')) }));
 
 // --- negative: types ----------------------------------------------------------------------------
 
@@ -125,7 +125,7 @@ logs().eval('a', (c) => abs(c['host.name']));
 // --- negative: scoping --------------------------------------------------------------------------
 
 const grouped = logs().stats(
-  (c) => ({ n: count() }),
+  (c) => ({ n: count(c.bytes) }),
   (c) => ({ host: c['host.name'] })
 );
 

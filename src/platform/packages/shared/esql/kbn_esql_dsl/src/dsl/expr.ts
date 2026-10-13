@@ -7,17 +7,9 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { Kind, Ty } from './types';
-
-export type ExprNode =
-  | { readonly tag: 'col'; readonly name: string }
-  | {
-      readonly tag: 'lit';
-      readonly ty: Ty;
-      readonly value: string | number | boolean;
-    }
-  | { readonly tag: 'param'; readonly name: string; readonly ty: Ty }
-  | { readonly tag: 'call'; readonly fn: string; readonly args: readonly ExprNode[] };
+import type { EsqlType } from '../esql_type';
+import type { Kind } from '../kind';
+import type { ExprNode } from '../surface/expr';
 
 export declare const exprBrand: unique symbol;
 
@@ -25,29 +17,15 @@ export declare const exprBrand: unique symbol;
  * A typed expression. `T` is its ES|QL type and `K` says where it may appear.
  * The brand makes both parameters structural, so `Expr<'long', K>` and `Expr<'keyword', K>` are distinct.
  */
-export interface Expr<T extends Ty, K extends Kind> {
+export interface Expr<T extends EsqlType, K extends Kind> {
   readonly node: ExprNode;
   readonly [exprBrand]?: { readonly ty: T; readonly kind: K };
 }
 
-export type AnyExpr = Expr<Ty, Kind>;
+export type AnyExpr = Expr<EsqlType, Kind>;
 
 export type TyOf<R> = {
-  [P in keyof R]: R[P] extends Expr<infer T extends Ty, Kind> ? T : never;
-};
-
-export const mk = <T extends Ty, K extends Kind>(node: ExprNode): Expr<T, K> => ({ node });
-
-export const call = <T extends Ty, K extends Kind>(
-  fn: string,
-  ...args: readonly AnyExpr[]
-): Expr<T, K> => mk({ tag: 'call', fn, args: args.map((a) => a.node) });
-
-const integral = (n: number, what: string): number => {
-  if (!Number.isInteger(n)) {
-    throw new Error(`${what} literal must be an integer, got ${n}`);
-  }
-  return n;
+  [P in keyof R]: R[P] extends Expr<infer T extends EsqlType, Kind> ? T : never;
 };
 
 /** Literals are explicit about their ES|QL type because JS cannot tell `2` from `2.0`. */
@@ -62,5 +40,19 @@ export const lit = {
   date: (iso: string): Expr<'date', 'const'> => mk({ tag: 'lit', ty: 'date', value: iso }),
 };
 
-export const param = <T extends Ty>(name: string, ty: T): Expr<T, 'const'> =>
+export const param = <T extends EsqlType>(name: string, ty: T): Expr<T, 'const'> =>
   mk({ tag: 'param', name, ty });
+
+export const call = <T extends EsqlType, K extends Kind>(
+  fn: string,
+  ...args: readonly AnyExpr[]
+): Expr<T, K> => mk({ tag: 'call', fn, args: args.map((a) => a.node) });
+
+export const mk = <T extends EsqlType, K extends Kind>(node: ExprNode): Expr<T, K> => ({ node });
+
+const integral = (n: number, what: string): number => {
+  if (!Number.isInteger(n)) {
+    throw new Error(`${what} literal must be an integer, got ${n}`);
+  }
+  return n;
+};
