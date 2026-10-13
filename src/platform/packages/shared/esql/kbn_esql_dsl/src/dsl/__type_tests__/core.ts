@@ -12,7 +12,7 @@
  * and an `@ts-expect-error` that no longer fires is TS2578.
  */
 
-import type { Cols, Inferred, OpenSchema, Q, Stage } from '../..';
+import type { Cols, Expr, Inferred, OpenSchema, Q, Stage } from '../..';
 import {
   abs,
   add,
@@ -29,6 +29,8 @@ import {
   round,
   substring,
   sum,
+  toBase64,
+  toKeyword,
   top,
   typed,
   where,
@@ -247,3 +249,24 @@ logs().eval('x', (c) => concat(c['host.name']));
 
 // @ts-expect-error an aggregate cannot be mixed with a per-row value
 logs().stats((c) => ({ x: coalesce(c.bytes, sum(c.bytes)) }));
+
+// --- open sources: columns that earlier stages defined -----------------------------------------
+
+// An open row keeps every column that RENAME and EVAL defined, not only the last one.
+const defined = open
+  .rename('a', 'b')
+  .eval('e', (c) => toKeyword(c.b))
+  .eval('f', (c) => toBase64(c.e));
+assertType<Equal<SchemaOf<typeof defined>['b'], Inferred>>();
+assertType<Equal<SchemaOf<typeof defined>['e'], 'keyword'>>();
+assertType<Equal<SchemaOf<typeof defined>['f'], 'keyword'>>();
+
+// A later stage sees them with their types, so a column that EVAL defined is not Inferred.
+open
+  .rename('a', 'b')
+  .eval('e', (c) => toKeyword(c.b))
+  .where((c) => {
+    assertType<Equal<typeof c.b, Expr<Inferred, 'scalar'>>>();
+    assertType<Equal<typeof c.e, Expr<'keyword', 'scalar'>>>();
+    return eq(c.e, lit.str('x'));
+  });
