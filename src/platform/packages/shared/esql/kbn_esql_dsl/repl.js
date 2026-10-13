@@ -9,12 +9,12 @@
 
 /**
  * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js` from the
- * repository root. Every export of the package is in scope, plus `show(query, { schema? })`.
- * `:t name` shows a function's type, and `:t` alone lists them all. `:i name` shows everything
- * about a protocol (its dependency and instances), an ES|QL type (what it supports) or a function
- * (its type and the protocols it requires). `:toggle kinds` and `:toggle dependencies` show or hide
- * the kind signature and the `where` lines of `:t` and `:i`; kinds start hidden.
+ * repository root. Every export of the package is in scope, and an expression prints as the plain
+ * JS value it is. `:h` lists the commands, which show a query the way the playground does (`:q`),
+ * look up types, protocols and instances (`:t`, `:i`), and switch what they show (`:toggle`).
  */
+
+const { inspect } = require('util');
 
 require('@kbn/setup-node-env');
 
@@ -23,34 +23,41 @@ const { standardLibrary } = require('./src/core/polymorphism/standard/standard')
 const { ESQL_TYPES } = require('./src/vocabulary/esql_type');
 const { candidates } = require('./src/elaboration/solve/guidance');
 
-// What `:toggle` switches. Kinds start hidden and the `where` lines start shown.
-const settings = { kinds: false, dependencies: true };
+// What `:toggle` switches. The kind signatures and the Core start hidden, the `where` lines shown.
+const settings = { kinds: false, dependencies: true, 'print-core': false };
 
-const show = (q, options) => {
+const describe = (q, options) => {
   const result = dsl.typecheck(q.ast, options);
   const explain = (type) =>
     `${
       candidates(standardLibrary, result.solution, type).map(dsl.Print.esqlType).join('|') || 'none'
     }?`;
-  console.log(dsl.compile(result.core).print('pipe-multiline'));
-  console.log(
+  return [
+    dsl.compile(result.core).print('pipe-multiline'),
     result.ok
       ? '\nchecks: ok'
       : `\nproblems:\n${result.diagnostics
           .map((d) => `  ${d.origin.path}: ${d.message}`)
-          .join('\n')}`
-  );
-  console.log('\ncolumns read:');
-  result.required.forEach((types, name) =>
-    console.log(`  ${name}: {${types.map(dsl.Print.esqlType).join(', ')}}`)
-  );
-  console.log(
-    `\nprincipal type: ${dsl.Print.principal(standardLibrary, result.principal, settings)}`
-  );
-  console.log(
-    `\n${dsl.Print.core(result.core, result.solution, { library: standardLibrary, explain })}`
-  );
+          .join('\n')}`,
+    '\ncolumns read:',
+    ...[...result.required].map(
+      ([name, types]) => `  ${name}: {${types.map(dsl.Print.esqlType).join(', ')}}`
+    ),
+    `\nprincipal type: ${dsl.Print.principal(standardLibrary, result.principal, settings)}`,
+    ...(settings['print-core']
+      ? [
+          `\n${dsl.Print.core(result.core, result.solution, {
+            library: standardLibrary,
+            explain,
+          })}`,
+        ]
+      : []),
+  ].join('\n');
 };
+
+const show = (q, options) => console.log(describe(q, options));
+
+const isQuery = (value) => Boolean(value && value.ast && value.ast.source);
 
 // The DSL helpers `gt` and `eq` are the library's `greater_than` and `equals`.
 const aliases = { gt: 'greater_than', eq: 'equals' };
@@ -106,18 +113,76 @@ const toggle = (name) => {
 };
 
 const evaluate = server.eval;
+
+// `:q` evaluates what follows it and, when that is a query, shows it the way the playground does.
+const showQuery = (expression, context, done) =>
+  evaluate.call(server, `${expression}\n`, context, 'repl', (error, value) => {
+    if (error) {
+      console.log(String(error));
+    } else if (isQuery(value)) {
+      console.log(describe(value));
+    } else {
+      console.log(`not a query: ${inspect(value, { colors: process.stdout.isTTY })}`);
+    }
+    done(null);
+  });
+
+const helpText = (list) =>
+  [
+    'Every export of the package is in scope, and `show(query, { schema })` shows a query against a schema.',
+    '',
+    ...list.map((c) => `  ${c.usage.padEnd(20)}${c.help}`),
+  ].join('\n');
+
+const commands = [
+  {
+    usage: ':q <expression>',
+    help: 'show a one-line query: its ES|QL, checks, columns read and principal type, and the elaborated Core with :toggle print-core',
+    run: (argument, context, done) => showQuery(argument, context, done),
+  },
+  {
+    usage: ':t [function]',
+    help: "show a function's type, or every function's",
+    run: (argument, _context, done) => {
+      console.log(lookup(argument));
+      done(null);
+    },
+  },
+  {
+    usage: ':i [name]',
+    help: 'show a protocol with its dependency and instances, what an ES|QL type supports, or a function with the protocols it requires; no name lists the protocols',
+    run: (argument, _context, done) => {
+      console.log(info(argument));
+      done(null);
+    },
+  },
+  {
+    usage: ':toggle [setting]',
+    help: `switch a setting (${Object.keys(settings).join(
+      ', '
+    )}) that decides what :t, :i and :q show`,
+    run: (argument, _context, done) => {
+      console.log(toggle(argument));
+      done(null);
+    },
+  },
+  {
+    usage: ':h',
+    help: 'show this help',
+    run: (_argument, _context, done) => {
+      console.log(helpText(commands));
+      done(null);
+    },
+  },
+];
+
 server.eval = (input, context, file, done) => {
-  const type = /^\s*:t\b\s*(\S*)\s*$/.exec(input);
-  const about = /^\s*:i\b\s*(\S*)\s*$/.exec(input);
-  const setting = /^\s*:toggle\b\s*(\S*)\s*$/.exec(input);
-  if (type) {
-    console.log(lookup(type[1]));
-    done(null);
-  } else if (about) {
-    console.log(info(about[1]));
-    done(null);
-  } else if (setting) {
-    console.log(toggle(setting[1]));
+  const typed = /^\s*:(\w+)\b\s*([\s\S]*?)\s*$/.exec(input);
+  const command = typed && commands.find((c) => c.usage.split(/[ [<]/)[0] === `:${typed[1]}`);
+  if (command) {
+    command.run(typed[2], context, done);
+  } else if (typed) {
+    console.log(`unknown command :${typed[1]}, :h lists the commands`);
     done(null);
   } else {
     evaluate.call(server, input, context, file, done);
