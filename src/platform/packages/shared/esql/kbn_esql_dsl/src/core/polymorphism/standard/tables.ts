@@ -53,6 +53,9 @@ export const ABS = {
   unsigned_long: 'unsigned_long',
 } as const;
 
+/** `SUBSTRING`: argument type -> result type. `text` comes back as `keyword`. */
+export const STRING = { keyword: 'keyword', text: 'keyword' } as const;
+
 export const AVG = { double: 'double', integer: 'double', long: 'double' } as const;
 export const SUM = { double: 'double', integer: 'long', long: 'long' } as const;
 

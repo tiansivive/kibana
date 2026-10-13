@@ -23,7 +23,7 @@ describe('Print.core', () => {
       .stats((c) => ({ total: sum(c.bytes) }))
       .sort((c) => [desc(c.total)]);
     const a = typecheck(q.ast, { schema: { bytes: 'long', risk: 'double' } });
-    expect(Print.core(a.core, a.solution, { library: standardLibrary })).toBe(
+    expect(Print.core(a.core, a.solution)).toBe(
       [
         'FROM logs-*',
         'WHERE',
@@ -100,6 +100,31 @@ describe('Print.ty', () => {
     const abs = standardLibrary.functions.get('abs');
     expect(abs && Print.fn(standardLibrary, abs, { kinds: false })).toBe(
       'abs :: forall a. Numeric a => a -> a'
+    );
+  });
+});
+
+describe('Print.fn: optional and further arguments', () => {
+  const show = (name: string) => {
+    const f = standardLibrary.functions.get(name);
+    return f ? Print.fn(standardLibrary, f, { dependencies: false }) : '';
+  };
+
+  it('ends an optional parameter in ? and further arguments in ...', () => {
+    expect(show('round')).toBe(
+      [
+        'round :: forall a b. (Numeric a, SignedNumeric b) => (a, b?) -> a',
+        '      :: (k, k?) -> k',
+      ].join('\n')
+    );
+    expect(show('coalesce')).toBe(
+      [
+        'coalesce :: forall a u b. (Norm a b, Norm u b) => (a, ...u) -> b',
+        '         :: (k, ...k) -> k',
+      ].join('\n')
+    );
+    expect(show('concat').split('\n')[0]).toBe(
+      'concat :: forall s t u. (Norm s ES.keyword, Norm t ES.keyword, Norm u ES.keyword) => (s, t, ...u) -> ES.keyword'
     );
   });
 });

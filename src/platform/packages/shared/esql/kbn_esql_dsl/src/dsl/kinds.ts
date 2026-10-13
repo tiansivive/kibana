@@ -8,6 +8,8 @@
  */
 
 import type { Kind } from '../vocabulary/kind';
+import type { Expr } from './expr';
+import type { ExprType } from './inferred';
 
 export type Operand = Exclude<Kind, 'grouping'>;
 export type Scalarish = 'const' | 'scalar';
@@ -27,5 +29,18 @@ export type CompatibleWith<A extends Operand> = A extends 'const'
   : A extends 'scalar'
   ? Scalarish
   : 'const' | 'agg';
+
+/** The kind of a call that takes the kinds `R` after one of kind `K`. */
+export type JoinAll<K extends Operand, R extends readonly Operand[]> = R extends readonly [
+  infer H extends Operand,
+  ...infer Tail extends readonly Operand[]
+]
+  ? JoinAll<Join<K, H>, Tail>
+  : K;
+
+/** The further arguments of a variadic call: one expression of type `T` for each kind in `R`. */
+export type Rest<T extends ExprType, R extends readonly Operand[]> = {
+  readonly [I in keyof R]: Expr<T, R[I]>;
+};
 
 export type Simplify<T> = { [K in keyof T]: T[K] } & {};

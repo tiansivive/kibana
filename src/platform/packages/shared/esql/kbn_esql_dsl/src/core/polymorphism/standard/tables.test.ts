@@ -9,7 +9,7 @@
 
 import { functionDefinitions } from '@elastic/esql-definitions/functions';
 import { operatorDefinitions } from '@elastic/esql-definitions/operators';
-import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';
+import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, STRING, SUM, TOP } from './tables';
 import type { BinaryTable, UnaryTable } from './tables';
 import { ESQL_TYPES } from '../../../vocabulary/esql_type';
 
@@ -90,5 +90,48 @@ describe('signature tables match @elastic/esql-definitions', () => {
       .map((s) => `${s.params[0].type}->${s.returnType}`)
       .toSorted();
     expect(expandUnary(TOP)).toEqual(rows);
+  });
+});
+
+describe('tables of functions with optional and further parameters match the definitions', () => {
+  const rows = (
+    name: string,
+    pick: (s: { params: { type: string }[]; returnType: string }) => string
+  ) =>
+    findFunction(name)
+      .signatures.filter((s) => [...s.params.map((p) => p.type), s.returnType].every(inScope))
+      .map(pick)
+      .toSorted();
+  const unique = (values: readonly string[]) => [...new Set(values)];
+
+  it('round reads its number like abs, and its decimals as a signed number', () => {
+    expect(unique(rows('round', (s) => `${s.params[0].type}->${s.returnType}`))).toEqual(
+      expandUnary(ABS)
+    );
+    const decimals = unique(rows('round', (s) => s.params[1]?.type ?? '')).filter(
+      (ty) => ty !== ''
+    );
+    expect(decimals.every((ty) => ty in AVG)).toBe(true);
+  });
+
+  it('substring reads text as keyword', () => {
+    expect(unique(rows('substring', (s) => `${s.params[0].type}->${s.returnType}`))).toEqual(
+      expandUnary(STRING)
+    );
+  });
+
+  it('concat takes every pair of text and keyword and gives keyword', () => {
+    const pairs = Object.keys(STRING).flatMap((a) => Object.keys(STRING).map((b) => `${a},${b}`));
+    expect(unique(rows('concat', (s) => `${s.params[0].type},${s.params[1].type}`))).toEqual(
+      pairs.toSorted()
+    );
+    expect(unique(rows('concat', (s) => s.returnType))).toEqual(['keyword']);
+  });
+
+  it('coalesce gives its argument type back, with text as keyword', () => {
+    rows('coalesce', (s) => `${s.params[0].type}->${s.returnType}`).forEach((row) => {
+      const [type, result] = row.split('->');
+      expect(result).toBe(type === 'text' ? 'keyword' : type);
+    });
   });
 });

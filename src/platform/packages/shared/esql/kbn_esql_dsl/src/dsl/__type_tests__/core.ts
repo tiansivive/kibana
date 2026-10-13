@@ -18,6 +18,8 @@ import {
   add,
   and,
   avg,
+  coalesce,
+  concat,
   count,
   eq,
   from,
@@ -25,6 +27,7 @@ import {
   lit,
   max,
   round,
+  substring,
   sum,
   top,
   typed,
@@ -207,3 +210,40 @@ open
   .drop('x')
   .eval('x', () => lit.long(1))
   .where((c) => gt(c.x, lit.long(2)));
+
+// --- optional and variadic parameters ----------------------------------------------------------
+
+// An optional parameter can be left out or given.
+const rounded = logs()
+  .eval('a', (c) => round(c.risk))
+  .eval('b', (c) => round(c.risk, lit.int(2)))
+  .eval('d', (c) => round(c.risk, c.bytes));
+assertType<Equal<SchemaOf<typeof rounded>['b'], 'double'>>();
+
+// @ts-expect-error decimals is a number
+logs().eval('x', (c) => round(c.risk, c['host.name']));
+
+// @ts-expect-error a string function takes text
+logs().eval('x', (c) => substring(c.bytes, lit.int(1)));
+
+const sliced = logs().eval('s', (c) => substring(c['host.name'], lit.int(1), lit.int(3)));
+assertType<Equal<SchemaOf<typeof sliced>['s'], 'keyword'>>();
+
+// A variadic function takes any number of further arguments.
+const merged = logs()
+  .eval('m', (c) => coalesce(c.bytes, lit.long(0), c.bytes))
+  .eval('t', (c) => concat(c['host.name'], lit.str('-'), c['host.name'], lit.str('!')));
+assertType<Equal<SchemaOf<typeof merged>['m'], 'long'>>();
+assertType<Equal<SchemaOf<typeof merged>['t'], 'keyword'>>();
+
+// An open column goes with any type.
+open.eval('c', (c) => coalesce(c.a, lit.str('unknown'), c.b));
+
+// @ts-expect-error every argument has the type of the first
+logs().eval('x', (c) => coalesce(c.bytes, c.risk));
+
+// @ts-expect-error concat takes at least two arguments
+logs().eval('x', (c) => concat(c['host.name']));
+
+// @ts-expect-error an aggregate cannot be mixed with a per-row value
+logs().stats((c) => ({ x: coalesce(c.bytes, sum(c.bytes)) }));

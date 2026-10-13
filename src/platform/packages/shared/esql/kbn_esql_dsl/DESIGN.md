@@ -97,7 +97,9 @@ Two kinds of protocol exist. Unary ones are sets of types: `Numeric`, `SignedNum
 
 A protocol that relates several types may declare `determinedBy`: some of its positions determine all the others, so `Arith integer long long` and `Arith integer long double` cannot both exist. The declaration is an invariant of the instances, checked by `dependencyViolations`, and the solver uses it to improve: when the determining arguments are known, the matching instance fixes the rest.
 
-The universe of types is closed and instances are ground, so resolving a protocol is a table lookup. Optional and repeating parameters are not modelled yet: the library has only required parameters.
+The universe of types is closed and instances are ground, so resolving a protocol is a table lookup.
+
+**Optional and further arguments.** A function's one type lists every positional parameter and says how many are required: `round :: forall a b. (Numeric a, SignedNumeric b) => (a, b?) -> a`. A function that takes any number of further arguments names their type after the parameters: `coalesce :: forall a u b. (Norm a b, Norm u b) => (a, ...u) -> b`. The result never depends on which optional parameters are given, so no variant per arity is needed (`top` is the exception that matters, and its optional parameter is ignored). A variable that occurs only in the further arguments and in the protocols that mention it stands for each further argument separately. `concat` takes `text` and `keyword` in any order for that reason (`Norm s keyword` holds for exactly those two types), and `coalesce` requires each argument to have the same normal form as the first (`Norm a b`, `Norm u b`), so `text` and `keyword` mix. A variable that also occurs in a parameter or in the result is shared by every argument, which is how a function requires its arguments to agree. A protocol over a variable that only an omitted optional parameter mentions is not required, so `round(x)` has no fact about its decimals. The kind signature has the same shape, `(k, k?) -> k` and `(k, ...k) -> k`. `makeLibrary` rejects a function whose kind signature disagrees with its type about the number of parameters or about further arguments, and one that requires more parameters than it has. A call with too few or too many arguments is an `arity` error that names the numbers the function takes.
 
 ## Growing the library
 
@@ -112,8 +114,9 @@ Irregularities in the published rows to expect when adding functions:
 - Many functions return their argument's type except `text` becomes `keyword`. Use `Norm`.
 - Arithmetic and comparisons widen along `integer < long < double`, the result of arithmetic is the least upper bound, and the numeric rows of `add`, `sub`, `mul`, `div` and `mod` are identical. Their temporal rows differ between `add` and `sub`. Comparisons also accept `date` with `date_nanos` and `keyword` with `text`, with one table for equality (which also takes `boolean` and `geo_point`) and one for ordering.
 - `unsigned_long` mixes with nothing in arithmetic or comparisons, but mixes with `integer`, `long` and `double` in `clamp`, with no single least upper bound (`clamp(integer, unsigned_long, unsigned_long)` is `unsigned_long`, `clamp(unsigned_long, long, long)` is `long`).
-- A variadic signature repeats its last parameter. `coalesce`, `greatest` and `least` take same-type arguments. `case` alternates conditions and values and needs its own typing.
-- A signature with optional parameters can have a result that depends on an omitted-at-the-end parameter (`top` with `outputField`). An explicit signature takes precedence over a shorter prefix of a longer one.
+- A variadic signature repeats its last parameter, but the rows list only two or three leading arguments, so they cannot say whether the repeated ones may differ from each other. `coalesce`, `greatest` and `least` take arguments of one type, and `concat` takes `text` and `keyword` in any order. `case` alternates conditions and values and needs its own typing.
+- A signature with optional parameters can have a result that depends on an omitted-at-the-end parameter (`top` with `outputField`). An explicit signature takes precedence over a shorter prefix of a longer one. Every other function in the rows has a result that is independent of its optional parameters, and `tbucket` and `tstep` are the only other exceptions.
+- Fifteen functions take named parameters as a map (`function_named_parameters`). They are not modelled.
 - `tbucket` and `tstep` list `date` and `date_nanos` for identical arguments, so their result depends on something that is not a parameter (a candidate: the implicit time field). Leave them out until that is explained.
 - Implicit casts of string literals to `date`, `ip` and `version` do not appear in the rows.
 - A parameter or return type outside the covered set drops that signature. A function with no covered signature is unsupported.
@@ -122,7 +125,7 @@ Irregularities in the published rows to expect when adding functions:
 
 Inference elaborates the AST into the Core while emitting constraints, then solves them.
 
-**Elaboration.** The pass is bidirectional. A context checks an expression against the type it expects (`WHERE` expects `boolean`), and an expression with no expectation synthesises its own type. A call looks up the function's type, instantiates it with fresh metas named by the call's AST path, and checks each argument against its parameter, so the expected type flows from the function down into the argument. It emits one wanted constraint per requirement of the function's type, each with a placeholder for the instance. A source column read from the source is a meta constrained by the `FieldType` protocol, which excludes value-only types such as `date_period` and `time_duration`. Commands are monotypes over rows and need no instantiation.
+**Elaboration.** The pass is bidirectional. A context checks an expression against the type it expects (`WHERE` expects `boolean`), and an expression with no expectation synthesises its own type. A call looks up the function's type, instantiates it with fresh metas named by the call's AST path, and checks each argument against its parameter, so the expected type flows from the function down into the argument. It emits one wanted constraint per requirement of the function's type, each with a placeholder for the instance, and one per further argument for a requirement over the variables that stand for each further argument. A source column read from the source is a meta constrained by the `FieldType` protocol, which excludes value-only types such as `date_period` and `time_duration`. Commands are monotypes over rows and need no instantiation.
 
 **Solving.** Solving has two operations and records its result:
 
@@ -205,7 +208,8 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 
 ## Open questions that only ES can answer
 
-- Do `coalesce`, `greatest` and `least` accept mixed numeric types beyond the published same-type signatures?
+- Do `coalesce`, `greatest` and `least` accept mixed numeric types beyond the published same-type signatures? Does `coalesce` accept `text` with `keyword`, as the library assumes?
+- Does `concat` accept `text` and `keyword` in any order beyond its first two arguments, as the library assumes?
 - Which implicit string-literal conversions exist?
 - Does `unsigned_long + 1` type-check?
 - May an aggregate expression reference a `BY` grouping key?
@@ -243,19 +247,20 @@ src/
 Implemented:
 
 - Kinds, `Expr<T, K>`, the immutable builder, stages and callback-scoped columns, with compile-time tests (`@ts-expect-error`) and a performance check (1,000 fields and 15 stages cost about 100k type instantiations and under a second of checking on TypeScript 6.0.3, growing linearly in both).
-- Protocols, instances and function types as data, with a coherence check. The standard library has 9 protocols (`FieldType`, `Numeric`, `SignedNumeric`, `Orderable`, `Norm`, `Wide`, `Arith`, `Comparable`, `Equatable`) and one type for each of 12 functions (`abs`, `round`, `add`, `greater_than`, `equals`, `and`, `or`, `avg`, `sum`, `max`, `count`, `top`), built from tables that are checked against `@elastic/esql-definitions`. A test checks every function against the published tables for every combination of types. The library is not exported.
+- Protocols, instances and function types as data, with a coherence check. The standard library has 9 protocols (`FieldType`, `Numeric`, `SignedNumeric`, `Orderable`, `Norm`, `Wide`, `Arith`, `Comparable`, `Equatable`) and one type for each of 15 functions (`abs`, `round`, `substring`, `coalesce`, `concat`, `add`, `greater_than`, `equals`, `and`, `or`, `avg`, `sum`, `max`, `count`, `top`), built from tables that are checked against `@elastic/esql-definitions`. A test checks every function against the published tables for every combination of types. The library is not exported.
+- Optional and further arguments in function types, kind signatures, elaboration, printing and the TypeScript layer (`round`, `substring`, `coalesce` and `concat` are the first users). `dsl/functions.test.ts` checks that each exported TypeScript function calls a library function with the same number of parameters and builds a call with only the arguments it is given, and that every library function has an exported function.
 - The Core and bidirectional elaboration into it, with a placeholder for every instance. The Core is never rewritten: types are looked up in the solution on demand.
 - The solver: unification recorded as links, and wanted constraints resolved with instances and dependencies, in a few small files. A property test checks that a constraint network with a solution is never rejected and that the result does not depend on constraint order.
 - Open rows with `lacks`, diagnostics with AST-path provenance, guidance computed from the waiting constraints, and `typecheck(ast, { schema? })`, which returns the diagnostics, the types of the columns read and produced, the Core, and the solution.
 - `compile`, which turns the Core into an `@elastic/esql` query for every command and expression the library has, and the printer.
-- `typecheck` reports the principal type (`Typechecked.principal`) and `Print.principal` shows it, for example `forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }`. `Print.ty` in `core/print.ts`, imported as `import * as Print`, shows every type the same way: ES|QL types with an `ES.` prefix (`ES.keyword`) so they are never mistaken for variables, variables by name, and a function's type as `forall a b. (SignedNumeric a, Wide a b) => a -> b`, with several parameters as `(a, b) -> c`. `Print.principal` adds the same `where` line for each protocol with a dependency, so the fundep that couples two variables is visible, for example `where Wide a b | a -> b`. Diagnostics, `Print.core`, `Print.principal` and the playground all use it. Unknown column types are variables, `P` is the undecided protocol facts with `FieldType` on source columns left out and repeats dropped, and a closed schema leaves no variables. Variables that belong to neither row, such as the result of an inner `add`, stay in `P`. Guidance per column is the projection of `P` onto one variable.
+- `typecheck` reports the principal type (`Typechecked.principal`) and `Print.principal` shows it, for example `forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }`. `Print.ty` in `core/print.ts`, imported as `import * as Print`, shows every type the same way: ES|QL types with an `ES.` prefix (`ES.keyword`) so they are never mistaken for variables, variables by name, and a function's type as `forall a b. (SignedNumeric a, Wide a b) => a -> b`, with several parameters as `(a, b) -> c`, an optional parameter as `b?` and further arguments as `...u`. `Print.principal` adds the same `where` line for each protocol with a dependency, so the fundep that couples two variables is visible, for example `where Wide a b | a -> b`. Diagnostics, `Print.core`, `Print.principal` and the playground all use it. Unknown column types are variables, `P` is the undecided protocol facts with `FieldType` on source columns left out and repeats dropped, and a closed schema leaves no variables. Variables that belong to neither row, such as the result of an inner `add`, stay in `P`. Guidance per column is the projection of `P` onto one variable.
 - A playground, `src/playground.test.ts`: a list of example queries, each printed as the ES|QL it compiles to, whether it checks, the guidance for unknown columns, the principal type and the elaborated Core.
 - A REPL, `repl.js`, run from the repository root with `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js`: the package exports are in scope and an expression prints as the plain JS value it is. `:q <expression>` shows a one-line query the way the playground does, without the elaborated Core unless `:toggle print-core` turns it on, and `show(query, { schema })` does the same against a schema. `:h` lists the commands. `:t name` shows a function's type, `:t` alone lists them all, and `:i name` shows a protocol with its dependency and every instance, what an ES|QL type supports, or a function with the protocols it requires, and `:toggle kinds`, `:toggle dependencies` and `:toggle print-core` show or hide the kind signature, the `where` lines of `:t`, `:i` and `:q`, and the Core of `:q`. Kinds and the Core start hidden.
 
 Not yet implemented:
 
 - Running a compiled query against Elasticsearch, and comparing its result columns with the inferred output.
-- Optional and repeating parameters, grouping functions and string-literal protocols.
+- `case`, which needs a repeating group of a condition and a value, grouping functions, and string-literal protocols.
 
 ## Build order
 
@@ -266,7 +271,7 @@ Not yet implemented:
 
 ## Out of scope
 
-`raw<T>()` escape hatch, multi-source rows (`LOOKUP JOIN`, `FROM a, b`, subqueries), wildcard `KEEP`/`DROP`, `enrich`, `grok`/`dissect`, `SET unmapped_fields`, lazy diagnosis on error, stack-trace provenance, context-dependent numeric literals, subtyping, user-defined protocols or instances, optional and repeating parameters, and detection of unsatisfiable constraints between unknown types.
+`raw<T>()` escape hatch, multi-source rows (`LOOKUP JOIN`, `FROM a, b`, subqueries), wildcard `KEEP`/`DROP`, `enrich`, `grok`/`dissect`, `SET unmapped_fields`, lazy diagnosis on error, stack-trace provenance, context-dependent numeric literals, subtyping, user-defined protocols or instances, map parameters, and detection of unsatisfiable constraints between unknown types.
 
 ## Risks
 

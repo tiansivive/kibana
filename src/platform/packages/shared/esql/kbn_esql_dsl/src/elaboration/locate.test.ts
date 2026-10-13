@@ -27,6 +27,8 @@ describe('Locate', () => {
     const call = Locate.arg(Locate.command(0, 'eval'), 0);
     expect(Locate.typeVariable(call, 'a')).toBe('pipe[0].eval.args[0]$a');
     expect(Locate.instance(call, 1)).toBe('pipe[0].eval.args[0]#1');
+    expect(Locate.restVariable(call, 'u', 3)).toBe('pipe[0].eval.args[0]$u[3]');
+    expect(Locate.restInstance(call, 2, 3)).toBe('pipe[0].eval.args[0]#2[3]');
     expect(Locate.untyped(call)).toBe('pipe[0].eval.args[0]!');
     expect(Locate.untyped(call, 'host')).toBe('pipe[0].eval.args[0]!host');
     expect(Locate.orderable(call)).toBe('pipe[0].eval.args[0]#orderable');

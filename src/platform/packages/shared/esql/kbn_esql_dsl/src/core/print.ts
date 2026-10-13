@@ -22,8 +22,6 @@ import type { Meta, Mono, Poly, Requires, Type } from './type';
  */
 
 export interface Options {
-  /** Names the protocol behind each instance. Without it only the instance's types are shown. */
-  readonly library?: Library;
   /** Describes a type that is still unknown, for example with the types it may still be. */
   readonly explain?: (type: Mono) => string;
 }
@@ -70,7 +68,7 @@ export const fn = (library: Library, f: LibraryFunction, options: FnOptions = {}
   const indent = ' '.repeat(f.name.length);
   return [
     `${f.name} :: ${ty(f.type, names)}`,
-    ...(kinds ? [`${indent} :: ${kindSignature(f.kinds)}`] : []),
+    ...(kinds ? [`${indent} :: ${kindSignature(f.kinds, f.type.required)}`] : []),
     ...(dependencies ? requiredDependencies(library, f.type.requires, names, indent) : []),
   ].join('\n');
 };
@@ -158,13 +156,22 @@ const mono = (type: Mono, names: Names): string =>
     : names.meta?.(type.meta) ?? '?';
 
 const poly = (type: Poly, names: Names): string => {
-  const variables = [...type.params, type.result, ...type.requires.flatMap((r) => r.args)]
+  const variables = [
+    ...type.params,
+    ...(type.rest ? [type.rest] : []),
+    type.result,
+    ...type.requires.flatMap((r) => r.args),
+  ]
     .flatMap((t) => (t.tag === 'var' ? [t.name] : []))
     .filter((name, i, all) => all.indexOf(name) === i);
   return [
     variables.length > 0 ? `forall ${variables.join(' ')}. ` : '',
     context(type.requires, names),
-    `${parameters(type.params.map((p) => mono(p, names)))} -> ${mono(type.result, names)}`,
+    `${parameters(
+      type.params.map((p) => mono(p, names)),
+      type.required,
+      type.rest && mono(type.rest, names)
+    )} -> ${mono(type.result, names)}`,
   ].join('');
 };
 
@@ -200,11 +207,19 @@ const instanceRow = (instance: readonly EsqlType[], determinedBy?: readonly numb
     : shown(instance);
 };
 
-const kindSignature = (kinds: KindSignature): string =>
-  `${parameters(kinds.params)} -> ${kinds.result}`;
+const kindSignature = (kinds: KindSignature, required: number): string =>
+  `${parameters(kinds.params, required, kinds.rest)} -> ${kinds.result}`;
 
-const parameters = (shown: readonly string[]): string =>
-  shown.length === 1 ? shown[0] : `(${shown.join(', ')})`;
+/** Parameters as they read in a type: optional ones end in `?` and further arguments in `...`. */
+const parameters = (shown: readonly string[], required = shown.length, rest?: string): string => {
+  const items = [
+    ...shown.map((p, i) => (i < required ? p : `${p}?`)),
+    ...(rest === undefined ? [] : [`...${rest}`]),
+  ];
+  return items.length === 1 && shown.length === required && rest === undefined
+    ? items[0]
+    : `(${items.join(', ')})`;
+};
 
 const distinctMetas = (types: readonly Mono[]): readonly Meta[] =>
   types
@@ -255,7 +270,7 @@ const expression = (e: CoreExpr, depth: number, solution: Solution, options: Opt
       return [`${pad}declared : ${type}`, ...expression(e.expr, depth + 1, solution, options)];
     case 'call':
       return [
-        `${pad}${e.fn} : ${type}${instances(e, solution, options)}`,
+        `${pad}${e.fn} : ${type}${instances(e, solution)}`,
         ...e.args.flatMap((a) => expression(a, depth + 1, solution, options)),
       ];
   }
@@ -268,20 +283,12 @@ const typeOf = (type: Mono, solution: Solution, options: Options): string => {
     : ty(resolved, { meta: (meta) => `?${meta}` });
 };
 
-const instances = (
-  call: Extract<CoreExpr, { tag: 'call' }>,
-  solution: Solution,
-  options: Options
-): string => {
-  const requires = options.library?.functions.get(call.fn)?.type.requires ?? [];
-  const shown = call.instances.flatMap((hole, i) => {
-    const instance = solution.instances.get(hole);
-    const name = requires[i]?.protocol;
+const instances = (call: Extract<CoreExpr, { tag: 'call' }>, solution: Solution): string => {
+  const shown = call.instances.map((needed) => {
+    const instance = solution.instances.get(needed.hole);
     return instance
-      ? [`${name ?? 'instance'}(${instance.map(esqlType).join(', ')})`]
-      : name
-      ? [`${name} undecided`]
-      : [];
+      ? `${needed.protocol}(${instance.map(esqlType).join(', ')})`
+      : `${needed.protocol} undecided`;
   });
   return shown.length > 0 ? `   [${shown.join('; ')}]` : '';
 };

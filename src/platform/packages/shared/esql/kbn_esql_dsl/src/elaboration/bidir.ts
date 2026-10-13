@@ -9,7 +9,7 @@
 
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
 import { esqlType, metaType } from '../core/type';
-import type { Hole, Mono } from '../core/type';
+import type { Mono, Poly } from '../core/type';
 import type { Library } from '../core/polymorphism/library';
 import type { Location } from '../diagnostics/location';
 import type { EsqlType } from '../vocabulary/esql_type';
@@ -261,17 +261,38 @@ const call = (
   if (!fn) {
     return unresolved(problem('unknown_function', `unknown function ${node.fn}`, location));
   }
-  if (fn.type.params.length !== node.args.length) {
+  const { params, required, rest } = fn.type;
+  if (node.args.length < required || (rest === undefined && node.args.length > params.length)) {
     return unresolved(
-      problem('arity', `${node.fn} does not take ${node.args.length} argument(s)`, location)
+      problem('arity', `${fn.name} takes ${arityOf(fn.type)}, got ${node.args.length}`, location)
     );
   }
   // The function's type is instantiated, and each argument is checked against its parameter.
-  const inst = instantiate(location);
-  const args = node.args.map((a, i) =>
-    check(library, row, a, inst(fn.type.params[i]), Locate.arg(location, i), `${fn.name} needs`)
+  const own = ownVariables(fn.type);
+  const shared = instantiate(location);
+  const further = (i: number) => instantiate(location, i, own);
+  const args = node.args.map((a, i) => {
+    const at = Locate.arg(location, i);
+    const parameter = i < params.length ? shared(params[i]) : rest && further(i)(rest);
+    return parameter
+      ? check(library, row, a, parameter, at, `${fn.name} needs`)
+      : synth(library, row, a, at);
+  });
+  const omitted = omittedVariables(fn.type, args.length);
+  const needed = fn.type.requires.flatMap((r, k) =>
+    r.args.some((arg) => arg.tag === 'var' && omitted.has(arg.name))
+      ? []
+      : r.args.some((arg) => arg.tag === 'var' && own.has(arg.name))
+      ? args
+          .map((_, i) => i)
+          .filter((i) => i >= params.length)
+          .map((i) => ({
+            hole: Locate.restInstance(location, k, i),
+            protocol: r.protocol,
+            args: r.args.map(further(i)),
+          }))
+      : [{ hole: Locate.instance(location, k), protocol: r.protocol, args: r.args.map(shared) }]
   );
-  const holes: readonly Hole[] = fn.type.requires.map((_, k) => Locate.instance(location, k));
   const { kind, emit: kindEmit } = callKind(
     fn,
     args.map((a) => a.kind),
@@ -282,22 +303,56 @@ const call = (
       tag: 'call',
       fn: node.fn,
       args: args.map((a) => a.core),
-      type: inst(fn.type.result),
-      instances: holes,
+      type: shared(fn.type.result),
+      instances: needed.map(({ hole, protocol }) => ({ hole, protocol })),
     },
     kind,
     emit: merge(
       ...args.map((a) => a.emit),
       kindEmit,
-      constrain(
-        ...fn.type.requires.map((r, k) => wanted(holes[k], r.protocol, r.args.map(inst), location))
-      )
+      constrain(...needed.map((n) => wanted(n.hole, n.protocol, n.args, location)))
     ),
   };
 };
 
-/** Each type variable of a function's type becomes a meta named for the call it is at. */
+/** The number of arguments a function takes, as it reads in a diagnostic. */
+const arityOf = ({ params, required, rest }: Poly): string =>
+  rest !== undefined
+    ? `at least ${plural(required)}`
+    : required === params.length
+    ? plural(required)
+    : `${required} to ${plural(params.length)}`;
+
+const plural = (n: number): string => `${n} argument${n === 1 ? '' : 's'}`;
+
+/** Variables that only the optional parameters left out of a call mention, which need nothing. */
+const omittedVariables = ({ params, result, rest }: Poly, given: number): ReadonlySet<string> => {
+  const named = (types: readonly Mono[]) => types.flatMap((t) => (t.tag === 'var' ? [t.name] : []));
+  const used = new Set(named([...params.slice(0, given), result, ...(rest ? [rest] : [])]));
+  return new Set(named(params.slice(given)).filter((name) => !used.has(name)));
+};
+
+/**
+ * Variables that occur only in the further arguments of a variadic function. Each further
+ * argument has its own, so `concat` takes `text` and `keyword` in any order.
+ */
+const ownVariables = ({ params, result, rest }: Poly): ReadonlySet<string> => {
+  const named = (types: readonly Mono[]) => types.flatMap((t) => (t.tag === 'var' ? [t.name] : []));
+  const shared = new Set(named([...params, result]));
+  return new Set(named(rest ? [rest] : []).filter((name) => !shared.has(name)));
+};
+
+/**
+ * Each type variable of a function's type becomes a meta named for the call it is at. For the
+ * further argument `index` of a variadic call, the variables in `own` are that argument's.
+ */
 const instantiate =
-  (location: Location) =>
+  (location: Location, index?: number, own: ReadonlySet<string> = new Set()) =>
   (term: Mono): Mono =>
-    term.tag === 'var' ? metaType(Locate.typeVariable(location, term.name)) : term;
+    term.tag !== 'var'
+      ? term
+      : metaType(
+          index !== undefined && own.has(term.name)
+            ? Locate.restVariable(location, term.name, index)
+            : Locate.typeVariable(location, term.name)
+        );

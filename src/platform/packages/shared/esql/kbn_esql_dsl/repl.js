@@ -45,12 +45,7 @@ const describe = (q, options) => {
     ),
     `\nprincipal type: ${dsl.Print.principal(standardLibrary, result.principal, settings)}`,
     ...(settings['print-core']
-      ? [
-          `\n${dsl.Print.core(result.core, result.solution, {
-            library: standardLibrary,
-            explain,
-          })}`,
-        ]
+      ? [`\n${dsl.Print.core(result.core, result.solution, { explain })}`]
       : []),
   ].join('\n');
 };
