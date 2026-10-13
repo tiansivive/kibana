@@ -56,8 +56,12 @@ export const constrain = (...constraints: readonly Constraint[]): Emit => ({
 export const report = (...diagnostics: readonly Diagnostic[]): Emit => ({ ...none, diagnostics });
 
 /** One problem at one place. */
-export const problem = (code: DiagnosticCode, message: string, location: Location): Emit =>
-  report(diagnostic(code, message, location));
+export const problem = (
+  code: DiagnosticCode,
+  message: string,
+  location: Location,
+  column?: string
+): Emit => report(diagnostic(code, message, location, [], column));
 
 export const equal = (found: Mono, expected: Mono, location: Location, note: string): Equal => ({
   tag: 'equal',

@@ -87,7 +87,8 @@ export const demand = (row: Row, name: string, location: Location): Demanded => 
     problem(
       'unknown_column',
       `unknown column ${name}; available: ${available.length ? available.join(', ') : '(none)'}`,
-      location
+      location,
+      name
     )
   );
 };

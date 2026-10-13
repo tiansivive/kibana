@@ -169,6 +169,27 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 - `KEEP` and `STATS` close the row. `DROP` removes fields and adds the names to `lacks`. `EVAL` replaces a column and clears its lack. `KEEP` and `DROP` read the columns they name, so naming a column that does not exist is an error.
 - `lacks` records that a dropped source column must not be read again. Without it, the open tail would answer the read by creating a fresh requirement on the source, accepting a query ES rejects. Closed TypeScript schemas already catch this through `Omit`. For open schemas `lacks` is the only guard.
 
+## Preflight
+
+Preflight checks a query against the mappings of the indices it reads. It is a separate step that takes a client, so building and type checking a query need none: whoever runs the query already holds a client, and calls `preflight` there.
+
+```ts
+const query = buildRiskScoreQuery(entityType, afterKeys);   // pure, in any file
+if (isDev) await preflight(query, esClient);                // next to the code that runs it
+```
+
+`preflight(query, esClient)`:
+
+1. Type checks the query without a schema. `required` lists the source columns it reads.
+2. Calls `esClient.fieldCaps({ index, fields })` with the indices of `FROM` and only those columns.
+3. `schemaFromFieldCaps(response, columns, indices)` types each column from the mappings. A column with one ES|QL type joins the schema. A column that is not mapped, whose type differs between indices, or whose type is not one of the covered types is a problem and stays out.
+4. Type checks the query again with that schema. Mismatches come back at their AST path. A column with a problem gets the diagnostic `unmapped_column`, `conflicting_field_types` or `unsupported_field_type` instead of `unknown_column`, once, at the first place it is read, with the indices that differ.
+5. Returns `{ ok, diagnostics, schema, columns }`, where `columns` has one entry per column read with the type the mappings give it, the types the query allows, and whether they fit.
+
+The client type is `EsClient = { fieldCaps(request: FieldCapsRequest): Promise<FieldCapsResponse> }`, using the request and response types of `@elastic/elasticsearch`, so Kibana's `ElasticsearchClient` and the `Client` of `@elastic/elasticsearch` both satisfy it and the package takes no `@kbn` dependency. A failed request is not caught, so the caller decides whether a failed check may stop anything. A query that reads no source column makes no request.
+
+Mapping types read as ES|QL types by a table in `preflight/schema.ts`: `keyword`, `constant_keyword` and `wildcard` as `keyword`, `text` and `match_only_text` as `text`, `short` and `byte` as `integer`, `float`, `half_float` and `scaled_float` as `double`, and `long`, `integer`, `double`, `unsigned_long`, `date`, `date_nanos`, `boolean`, `ip`, `version` and `geo_point` as themselves. Every other type, such as `object`, `nested`, `flattened`, counters and shapes, is unsupported. A column whose types differ between indices is a conflict, `text` with `keyword` included, because ES|QL rejects it (`Cannot use field [name] due to ambiguities being mapped as [2] incompatible types`, checked on 9.6.0-SNAPSHOT). Merely keeping such a column is accepted and gives nulls, so only using it is an error.
+
 ## Compile
 
 `compile(core)` builds the query from `@elastic/esql` tree nodes (`Builder`) and wraps it in a `ComposerQuery`, so `print()` gives the text and `toRequest()` the request. It never splices text.
@@ -215,6 +236,9 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 - May an aggregate expression reference a `BY` grouping key?
 - What determines the result type of `tbucket`?
 - Does `DROP` of a nonexistent column fail?
+- Do `short`, `byte`, `float`, `half_float` and `scaled_float` read as `integer` and `double` in ES|QL?
+- What type does `field_caps` report for a field alias, and what does ES|QL read it as?
+- What does `SET unmapped_fields` change? (A column mapped in only some of the indices reads as null in the others, and an `object` field is an unknown column, both checked on 9.6.0-SNAPSHOT.)
 
 About eight `ROW ... | EVAL ... | LIMIT 0` queries against a local cluster settle most of these. Casting every type inside `ROW` is itself unverified.
 
@@ -236,6 +260,7 @@ src/
     locate.ts                 the only place that spells paths, meta names and hole names
     solve/                    constraints, unify, decide, solve, solution, guidance
   diagnostics/                location.ts (a path into the query AST), diagnostic.ts
+  preflight/                  schema.ts (field_caps to a schema), preflight.ts (check a query against mappings)
   codegen/compile.ts          Core to ES|QL
   utils/immutable.ts          immutable map helpers
 ```
@@ -252,6 +277,7 @@ Implemented:
 - The Core and bidirectional elaboration into it, with a placeholder for every instance. The Core is never rewritten: types are looked up in the solution on demand.
 - The solver: unification recorded as links, and wanted constraints resolved with instances and dependencies, in a few small files. A property test checks that a constraint network with a solution is never rejected and that the result does not depend on constraint order.
 - Open rows with `lacks`, diagnostics with AST-path provenance, guidance computed from the waiting constraints, and `typecheck(ast, { schema? })`, which returns the diagnostics, the types of the columns read and produced, the Core, and the solution.
+- `preflight` and `schemaFromFieldCaps`, tested with hand-written `field_caps` responses and a fake client.
 - `compile`, which turns the Core into an `@elastic/esql` query for every command and expression the library has, and the printer.
 - `typecheck` reports the principal type (`Typechecked.principal`) and `Print.principal` shows it, for example `forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }`. `Print.ty` in `core/print.ts`, imported as `import * as Print`, shows every type the same way: ES|QL types with an `ES.` prefix (`ES.keyword`) so they are never mistaken for variables, variables by name, and a function's type as `forall a b. (SignedNumeric a, Wide a b) => a -> b`, with several parameters as `(a, b) -> c`, an optional parameter as `b?` and further arguments as `...u`. `Print.principal` adds the same `where` line for each protocol with a dependency, so the fundep that couples two variables is visible, for example `where Wide a b | a -> b`. Diagnostics, `Print.core`, `Print.principal` and the playground all use it. Unknown column types are variables, `P` is the undecided protocol facts with `FieldType` on source columns left out and repeats dropped, and a closed schema leaves no variables. Variables that belong to neither row, such as the result of an inner `add`, stay in `P`. Guidance per column is the projection of `P` onto one variable.
 - A playground, `src/playground.test.ts`: a list of example queries, each printed as the ES|QL it compiles to, whether it checks, the guidance for unknown columns, the principal type and the elaborated Core.
@@ -264,10 +290,9 @@ Not yet implemented:
 
 ## Build order
 
-1. **Preflight** against a schema, static or read from `field_caps`.
-2. **Grow the library** as functions are needed.
-3. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
-4. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
+1. **Grow the library** as functions are needed.
+2. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
+3. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
 
 ## Out of scope
 
@@ -297,6 +322,7 @@ node scripts/jest.js --config src/platform/packages/shared/esql/kbn_esql_dsl/jes
 node scripts/jest.js --config src/platform/packages/shared/esql/kbn_esql_dsl/jest.config.js src/platform/packages/shared/esql/kbn_esql_dsl/src/playground.test.ts --runInBand
 node scripts/eslint.js src/platform/packages/shared/esql/kbn_esql_dsl
 ```
+
 
 ## References
 
