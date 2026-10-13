@@ -7,10 +7,11 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
+import { standardLibrary } from '../../core/polymorphism/standard/standard';
 import { add, count, eq, fromOpen, lit, Print, sum, typecheck } from '../..';
 
 const principalOf = (...args: Parameters<typeof typecheck>) =>
-  Print.principal(typecheck(...args).principal);
+  Print.principal(standardLibrary, typecheck(...args).principal);
 
 describe('principal type', () => {
   it('has no variables when a schema closes the source', () => {
@@ -21,7 +22,10 @@ describe('principal type', () => {
   it('shows the facts that couple a column to a result', () => {
     const q = fromOpen('i').stats((c) => ({ total: sum(c.a) }));
     expect(principalOf(q.ast)).toBe(
-      'forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }'
+      [
+        'forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }',
+        '  where Wide a b | a -> b',
+      ].join('\n')
     );
   });
 
@@ -38,6 +42,16 @@ describe('principal type', () => {
     const text = principalOf(q.ast);
     expect(text).toContain('(Arith a b e, Arith e c f, SignedNumeric f, Wide f d)');
     expect(text).toContain('{ a: a, b: b, c: c, ... } -> { total: d }');
+    expect(text).toContain('  where Arith a b e | a b -> e');
+    expect(text).toContain('        Arith e c f | e c -> f');
+    expect(text).toContain('        Wide f d | f -> d');
+  });
+
+  it('leaves the where lines out when asked', () => {
+    const q = fromOpen('i').stats((c) => ({ total: sum(c.a) }));
+    expect(
+      Print.principal(standardLibrary, typecheck(q.ast).principal, { dependencies: false })
+    ).not.toContain('where');
   });
 
   it('is an ES|QL type where the query fixes it', () => {

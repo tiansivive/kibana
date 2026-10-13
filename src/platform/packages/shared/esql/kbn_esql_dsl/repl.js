@@ -10,15 +10,21 @@
 /**
  * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js` from the
  * repository root. Every export of the package is in scope, plus `show(query, { schema? })`.
- * `:t name` shows a function's type, and `:t` alone lists them all. `:toggle kinds` shows or hides
- * the kind signature of each function, hidden to start with.
+ * `:t name` shows a function's type, and `:t` alone lists them all. `:i name` shows everything
+ * about a protocol (its dependency and instances), an ES|QL type (what it supports) or a function
+ * (its type and the protocols it requires). `:toggle kinds` and `:toggle dependencies` show or hide
+ * the kind signature and the `where` lines of `:t` and `:i`; kinds start hidden.
  */
 
 require('@kbn/setup-node-env');
 
 const dsl = require('./src');
 const { standardLibrary } = require('./src/core/polymorphism/standard/standard');
+const { ESQL_TYPES } = require('./src/esql_type');
 const { candidates } = require('./src/elaboration/solve/guidance');
+
+// What `:toggle` switches. Kinds start hidden and the `where` lines start shown.
+const settings = { kinds: false, dependencies: true };
 
 const show = (q, options) => {
   const result = dsl.typecheck(q.ast, options);
@@ -38,7 +44,9 @@ const show = (q, options) => {
   result.required.forEach((types, name) =>
     console.log(`  ${name}: {${types.map(dsl.Print.esqlType).join(', ')}}`)
   );
-  console.log(`\nprincipal type: ${dsl.Print.principal(result.principal)}`);
+  console.log(
+    `\nprincipal type: ${dsl.Print.principal(standardLibrary, result.principal, settings)}`
+  );
   console.log(
     `\n${dsl.Print.core(result.core, result.solution, { library: standardLibrary, explain })}`
   );
@@ -47,11 +55,33 @@ const show = (q, options) => {
 // The DSL helpers `gt` and `eq` are the library's `greater_than` and `equals`.
 const aliases = { gt: 'greater_than', eq: 'equals' };
 
-const settings = { kinds: false };
+const functionNamed = (name) => standardLibrary.functions.get(aliases[name] ?? name);
 
 const typeOfFunction = (name) => {
-  const fn = standardLibrary.functions.get(aliases[name] ?? name);
-  return fn ? dsl.Print.fn(fn, { kinds: settings.kinds }) : undefined;
+  const fn = functionNamed(name);
+  return fn ? dsl.Print.fn(standardLibrary, fn, settings) : undefined;
+};
+
+const aboutFunction = (fn) =>
+  [
+    dsl.Print.fn(standardLibrary, fn, settings),
+    ...fn.type.requires.map((r) => dsl.Print.protocol(standardLibrary, r.protocol)),
+  ].join('\n\n');
+
+// `:i` takes a protocol, an ES|QL type with or without its `ES.` prefix, or a function.
+const info = (name) => {
+  const type = name.replace(/^ES\./, '');
+  const fn = functionNamed(name);
+  if (!name) {
+    return [...standardLibrary.protocols.keys()].join('\n');
+  }
+  if (standardLibrary.protocols.has(name)) {
+    return dsl.Print.protocol(standardLibrary, name);
+  }
+  if (ESQL_TYPES.includes(type)) {
+    return dsl.Print.protocolsOf(standardLibrary, type);
+  }
+  return fn ? aboutFunction(fn) : `nothing named ${name}`;
 };
 
 const lookup = (name) =>
@@ -78,9 +108,13 @@ const toggle = (name) => {
 const evaluate = server.eval;
 server.eval = (input, context, file, done) => {
   const type = /^\s*:t\b\s*(\S*)\s*$/.exec(input);
+  const about = /^\s*:i\b\s*(\S*)\s*$/.exec(input);
   const setting = /^\s*:toggle\b\s*(\S*)\s*$/.exec(input);
   if (type) {
     console.log(lookup(type[1]));
+    done(null);
+  } else if (about) {
+    console.log(info(about[1]));
     done(null);
   } else if (setting) {
     console.log(toggle(setting[1]));
