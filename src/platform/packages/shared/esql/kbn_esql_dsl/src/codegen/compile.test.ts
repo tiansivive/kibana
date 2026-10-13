@@ -20,12 +20,17 @@ import {
   eq,
   from,
   gt,
+  isNotNull,
+  isNull,
+  kql,
   lit,
   max,
   or,
   param,
   round,
   sum,
+  toBase64,
+  toKeyword,
   top,
   typed,
 } from '..';
@@ -82,6 +87,33 @@ describe('compile: commands', () => {
     );
     expect(printed(logs().keep('bytes', 'host.name').drop('bytes').ast)).toBe(
       'FROM logs-* | KEEP bytes, host.name | DROP bytes'
+    );
+  });
+});
+
+describe('compile: rename, null checks, conversions and KQL', () => {
+  it('prints RENAME with the old name first', () => {
+    expect(printed(logs().rename('bytes', 'size').rename('risk', 'rating').ast)).toBe(
+      'FROM logs-* | RENAME bytes AS size | RENAME risk AS rating'
+    );
+  });
+
+  it('prints IS NULL and IS NOT NULL after their operand', () => {
+    expect(printed(logs().where((c) => and(isNotNull(c.risk), isNull(c['host.name']))).ast)).toBe(
+      'FROM logs-* | WHERE risk IS NOT NULL AND host.name IS NULL'
+    );
+  });
+
+  it('prints the conversions, KQL and the weighted sum as calls', () => {
+    expect(
+      printed(
+        logs()
+          .where(() => kql(lit.str('bytes > 1')))
+          .eval('k', (c) => toKeyword(c.risk))
+          .eval('b', (c) => toBase64(c['host.name'])).ast
+      )
+    ).toBe(
+      'FROM logs-* | WHERE KQL("bytes > 1") | EVAL k = TO_STRING(risk) | EVAL b = TO_BASE64(host.name)'
     );
   });
 });

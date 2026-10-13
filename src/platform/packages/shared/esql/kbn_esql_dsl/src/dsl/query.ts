@@ -41,6 +41,10 @@ export interface Q<G extends object> {
   ): Q<Simplify<TyOf<A> & TyOf<B>>>;
   keep<K extends keyof G & string>(...columns: K[]): Q<Simplify<Pick<G, K>>>;
   drop<K extends keyof G & string>(...columns: K[]): Q<Remove<G, K>>;
+  rename<Old extends keyof G & string, New extends string>(
+    column: Old,
+    to: New
+  ): Q<Renamed<G, Old, New>>;
   sort(f: (c: Cols<G>) => ReadonlyArray<Expr<ExprType, Scalarish> | SortKey>): Q<G>;
   limit(n: number): Q<G>;
 }
@@ -86,6 +90,12 @@ type Remove<G, K extends string> = string extends keyof G
   ? Simplify<Omit<G, K | typeof lacksBrand> & Lacking<Lacked<G> | K>>
   : Simplify<Omit<G, K>>;
 
+/** A row's schema after `RENAME`: the column keeps its type under the new name. */
+type Renamed<G, Old extends string, New extends string> = G[Old &
+  keyof G] extends infer T extends ExprType
+  ? Extend<Remove<G, Old>, New, T>
+  : never;
+
 type Lacked<G> = G extends { readonly [lacksBrand]: infer L extends string } ? L : never;
 
 type Lacking<L extends string> = [L] extends [never] ? {} : { readonly [lacksBrand]: L };
@@ -128,6 +138,14 @@ export const drop =
   <G extends object, K extends keyof G & string>(...columns: K[]): Stage<G, Remove<G, K>> =>
   (q) =>
     q.append({ tag: 'drop', cols: columns });
+
+export const rename =
+  <G extends object, Old extends keyof G & string, New extends string>(
+    column: Old,
+    to: New
+  ): Stage<G, Renamed<G, Old, New>> =>
+  (q) =>
+    q.append({ tag: 'rename', from: column, to });
 
 export const sort =
   <G extends object>(
@@ -172,6 +190,7 @@ const makeQ = <G extends object>(ast: QueryAst): Q<G> => {
     stats: (aggs, by) => stage(stats(aggs, by)),
     keep: (...columns) => stage(keep(...columns)),
     drop: (...columns) => stage(drop(...columns)),
+    rename: (column, to) => stage(rename(column, to)),
     sort: (f) => stage(sort(f)),
     limit: (n) => stage(limit(n)),
   };

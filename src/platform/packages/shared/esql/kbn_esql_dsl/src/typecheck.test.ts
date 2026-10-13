@@ -19,12 +19,17 @@ import {
   eq,
   from,
   gt,
+  isNotNull,
+  kql,
   lit,
   max,
+  mvPseriesWeightedSum,
   Print,
   round,
   substring,
   sum,
+  toBase64,
+  toKeyword,
   top,
   typed,
 } from '.';
@@ -364,5 +369,77 @@ describe('typecheck: variadic parameters', () => {
       from('i').eval('r', () => call<'keyword', 'scalar'>('concat', lit.str('a'))).ast
     );
     expect(one.diagnostics[0].message).toBe('concat takes at least 2 arguments, got 1');
+  });
+});
+
+describe('typecheck: null checks, conversions, KQL and RENAME', () => {
+  it('lets a null check take any column without saying what type it has', () => {
+    const a = typecheck(from('i').where((c) => isNotNull(c.x)).ast);
+    expect(a.ok).toBe(true);
+    expect(Print.principal(standardLibrary, a.principal)).toBe(
+      'forall a. { x: a, ... } -> { x: a, ... }'
+    );
+  });
+
+  it('converts any column to keyword', () => {
+    const a = typecheck(from('i').eval('k', (c) => toKeyword(c.t)).ast, { schema: { t: 'date' } });
+    expect(output(a).k).toEqual(['keyword']);
+  });
+
+  it('takes keyword or text for TO_BASE64 and KQL, and gives keyword and boolean', () => {
+    const ok = typecheck(
+      from('i')
+        .where(() => kql(lit.str('a:1')))
+        .eval('b', (c) => toBase64(c.s)).ast,
+      { schema: { s: 'text' } }
+    );
+    expect(ok.ok).toBe(true);
+    expect(output(ok).b).toEqual(['keyword']);
+    const bad = typecheck(from('i').eval('b', (c) => toBase64(c.n)).ast, { schema: { n: 'long' } });
+    expect(codes(bad)).toEqual(['no_instance']);
+  });
+
+  it('sums the values of a TOP with a weight', () => {
+    const a = typecheck(
+      from('i').stats((c) => ({
+        s: mvPseriesWeightedSum(top(c.risk, lit.int(100), lit.str('desc')), lit.double(1.5)),
+      })).ast,
+      { schema: { risk: 'double' } }
+    );
+    expect(a.ok).toBe(true);
+    expect(output(a)).toEqual({ s: ['double'] });
+  });
+
+  it('moves a column to its new name and removes the old one', () => {
+    const a = typecheck(from('i').rename('a', 'b').ast, { schema: { a: 'long', c: 'keyword' } });
+    expect(output(a)).toEqual({ c: ['keyword'], b: ['long'] });
+  });
+
+  it('infers what the renamed column needs from how it is used under its new name', () => {
+    const a = typecheck(
+      from('i')
+        .rename('a', 'b')
+        .where((c) => gt(c.b, lit.long(1))).ast
+    );
+    expect(required(a)).toEqual({ a: ['integer', 'long', 'double'] });
+    expect(Print.principal(standardLibrary, a.principal)).toContain(
+      '{ a: a, ... } -> { b: a, ... }'
+    );
+  });
+
+  it('rejects reading the old name after RENAME', () => {
+    const closed = typecheck(
+      from('i')
+        .rename('a', 'b')
+        // @ts-expect-error `a` was renamed
+        .where((c) => gt(c.a, lit.long(1))).ast,
+      { schema: { a: 'long' } }
+    );
+    expect(codes(closed)).toEqual(['unknown_column']);
+  });
+
+  it('reports a column that is renamed but not there', () => {
+    const a = typecheck(from('i').rename('x', 'y').ast, { schema: { a: 'long' } });
+    expect(codes(a)).toEqual(['unknown_column']);
   });
 });

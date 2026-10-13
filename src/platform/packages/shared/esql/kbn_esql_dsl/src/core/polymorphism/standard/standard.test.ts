@@ -177,6 +177,33 @@ describe('standard library: optional and further parameters', () => {
   });
 });
 
+describe('standard library: null checks, conversions, KQL and the weighted sum', () => {
+  it('null checks and TO_STRING take every type', () => {
+    ESQL_TYPES.forEach((ty) => {
+      expect(scalarResult('is_null', ty)).toEqual(['boolean']);
+      expect(scalarResult('is_not_null', ty)).toEqual(['boolean']);
+      expect(scalarResult('to_string', ty)).toEqual(['keyword']);
+    });
+  });
+
+  it('TO_BASE64 and KQL take keyword and text only', () => {
+    ESQL_TYPES.forEach((ty) => {
+      const text = lookup(STRING, ty) !== undefined;
+      expect(scalarResult('to_base64', ty)).toEqual(text ? ['keyword'] : undefined);
+      expect(scalarResult('kql', ty)).toEqual(text ? ['boolean'] : undefined);
+    });
+  });
+
+  it('the weighted sum takes a number and a double weight, and gives double', () => {
+    ESQL_TYPES.forEach((ty) => {
+      expect(scalarResult('mv_pseries_weighted_sum', ty, 'double')).toEqual(
+        lookup(ABS, ty) === undefined ? undefined : ['double']
+      );
+    });
+    expect(scalarResult('mv_pseries_weighted_sum', 'double', 'keyword')).toBeUndefined();
+  });
+});
+
 describe('arithmetic is one fact about types', () => {
   const rows = (protocol: string): readonly string[] =>
     (standardLibrary.instances.get(protocol) ?? []).map((row) => row.join(','));

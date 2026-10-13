@@ -20,6 +20,7 @@ export type CommandNode =
   | { readonly tag: 'stats'; readonly aggs: readonly Named[]; readonly by: readonly Named[] }
   | { readonly tag: 'keep'; readonly cols: readonly string[] }
   | { readonly tag: 'drop'; readonly cols: readonly string[] }
+  | { readonly tag: 'rename'; readonly from: string; readonly to: string }
   | { readonly tag: 'sort'; readonly keys: readonly SortSpec[] }
   | { readonly tag: 'limit'; readonly n: number };
 

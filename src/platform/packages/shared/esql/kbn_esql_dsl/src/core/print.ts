@@ -246,6 +246,8 @@ const command = (cmd: CoreCommand, solution: Solution, options: Options): string
       return [`KEEP ${cmd.cols.join(', ')}`];
     case 'drop':
       return [`DROP ${cmd.cols.join(', ')}`];
+    case 'rename':
+      return [`RENAME ${cmd.from} AS ${cmd.to}`];
     case 'sort':
       return [
         'SORT',

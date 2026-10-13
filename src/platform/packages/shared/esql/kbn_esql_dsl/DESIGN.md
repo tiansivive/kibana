@@ -49,7 +49,7 @@ add   :: forall a b c. Arith a b c => (a, b) -> c
       :: (k, k) -> k
 ```
 
-A parameter is `const` (must be a constant), `scalar` (a per-row or constant value, never an aggregate) or `k` (any kind). The result is `agg`, `grouping`, or `k`, the join of the arguments passed to the `k` parameters, where mixing `scalar` with `agg` is rejected. An aggregate function is `(scalar, ...) -> agg`, a scalar function is `(k, ...) -> k`. The kind of an expression indexes a value, not its type, so the alternative of indexing every type by kind (`Expr k t`, as the TypeScript layer does) was not taken: scalar functions would need a partial join over kinds inside unification, for kinds that are never unknown.
+A parameter is `const` (must be a constant), `scalar` (a per-row or constant value, never an aggregate) or `k` (any kind). The result is `scalar` (a per-row value whatever the arguments, as for `KQL`), `agg`, `grouping`, or `k`, the join of the arguments passed to the `k` parameters, where mixing `scalar` with `agg` is rejected. An aggregate function is `(scalar, ...) -> agg`, a scalar function is `(k, ...) -> k`. The kind of an expression indexes a value, not its type, so the alternative of indexing every type by kind (`Expr k t`, as the TypeScript layer does) was not taken: scalar functions would need a partial join over kinds inside unification, for kinds that are never unknown.
 
 ## Protocols, instances and function types
 
@@ -166,7 +166,7 @@ A string literal has type `keyword` and belongs to a protocol `StrLit a` whose i
 The columns visible after a stage form a **row** `{ fields, tail }`. `fields` are the columns the query has named. `tail` is `closed` (nothing else) or `open(lacks)` (any other source column except those in `lacks`).
 
 - Reading a name finds a field first. Otherwise, in an open row, it is the source column `src:<name>`: one meta per source column, shared by every stage. In a closed row it is an `unknown_column` error.
-- `KEEP` and `STATS` close the row. `DROP` removes fields and adds the names to `lacks`. `EVAL` replaces a column and clears its lack. `KEEP` and `DROP` read the columns they name, so naming a column that does not exist is an error.
+- `KEEP` and `STATS` close the row. `DROP` removes fields and adds the names to `lacks`. `EVAL` replaces a column and clears its lack. `KEEP` and `DROP` read the columns they name, so naming a column that does not exist is an error. `RENAME old AS new` reads `old`, removes it as `DROP` does and defines `new` with its type, so a column read under the new name is constrained like the old one.
 - `lacks` records that a dropped source column must not be read again. Without it, the open tail would answer the read by creating a fresh requirement on the source, accepting a query ES rejects. Closed TypeScript schemas already catch this through `Omit`. For open schemas `lacks` is the only guard.
 
 ## Preflight
@@ -272,7 +272,7 @@ src/
 Implemented:
 
 - Kinds, `Expr<T, K>`, the immutable builder, stages and callback-scoped columns, with compile-time tests (`@ts-expect-error`) and a performance check (1,000 fields and 15 stages cost about 100k type instantiations and under a second of checking on TypeScript 6.0.3, growing linearly in both).
-- Protocols, instances and function types as data, with a coherence check. The standard library has 9 protocols (`FieldType`, `Numeric`, `SignedNumeric`, `Orderable`, `Norm`, `Wide`, `Arith`, `Comparable`, `Equatable`) and one type for each of 15 functions (`abs`, `round`, `substring`, `coalesce`, `concat`, `add`, `greater_than`, `equals`, `and`, `or`, `avg`, `sum`, `max`, `count`, `top`), built from tables that are checked against `@elastic/esql-definitions`. A test checks every function against the published tables for every combination of types. The library is not exported.
+- Protocols, instances and function types as data, with a coherence check. The standard library has 9 protocols (`FieldType`, `Numeric`, `SignedNumeric`, `Orderable`, `Norm`, `Wide`, `Arith`, `Comparable`, `Equatable`) and one type for each of 21 functions (`abs`, `round`, `substring`, `coalesce`, `concat`, `is_null`, `is_not_null`, `to_string`, `to_base64`, `kql`, `mv_pseries_weighted_sum`, `add`, `greater_than`, `equals`, `and`, `or`, `avg`, `sum`, `max`, `count`, `top`), built from tables that are checked against `@elastic/esql-definitions`. A test checks every function against the published tables for every combination of types. The library is not exported.
 - Optional and further arguments in function types, kind signatures, elaboration, printing and the TypeScript layer (`round`, `substring`, `coalesce` and `concat` are the first users). `dsl/functions.test.ts` checks that each exported TypeScript function calls a library function with the same number of parameters and builds a call with only the arguments it is given, and that every library function has an exported function.
 - The Core and bidirectional elaboration into it, with a placeholder for every instance. The Core is never rewritten: types are looked up in the solution on demand.
 - The solver: unification recorded as links, and wanted constraints resolved with instances and dependencies, in a few small files. A property test checks that a constraint network with a solution is never rejected and that the result does not depend on constraint order.
