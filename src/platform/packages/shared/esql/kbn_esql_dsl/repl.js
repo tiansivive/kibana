@@ -9,7 +9,8 @@
 
 /**
  * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js` from the
- * repository root. Every export of the package is in scope, and an expression prints as the plain
+ * repository root. Every export of the package is in scope, and so is `riskScoresQuery`, the risk
+ * score calculation's query written with the DSL (`src/examples/risk_scores.ts`), and an expression prints as the plain
  * JS value it is. `:h` lists the commands, which show a query the way the playground does (`:q`),
  * look up types, protocols and instances (`:t`, `:i`), and switch what they show (`:toggle`).
  * `:connect` or `:load` give it mappings to check a query against (`:check`, `:caps`).
@@ -98,7 +99,7 @@ const server = require('repl').start({
   useGlobal: true,
   ignoreUndefined: true,
 });
-Object.assign(server.context, dsl, { show });
+Object.assign(server.context, dsl, require('./src/examples/risk_scores'), { show });
 
 const toggle = (name) => {
   if (name in settings) {

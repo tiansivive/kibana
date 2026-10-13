@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Creates two small test indices on a local cluster so the REPL can check queries against real
+# Creates three small test indices on a local cluster so the REPL can check queries against real
 # mappings. They share a realistic set of fields and differ on purpose:
 #
 #   size    long in dsl-logs-a, keyword in dsl-logs-b       (conflicting_field_types)
@@ -8,6 +8,8 @@
 #   only_a  mapped in dsl-logs-a only                       (null in the other index)
 #   only_b  mapped in dsl-logs-b only                       (null in the other index)
 #   payload an object in dsl-logs-a                         (an unknown column to ES|QL)
+#
+# dsl-alerts has the fields of a security alert that the risk score calculation reads.
 #
 # Usage:
 #   scripts/setup_test_indices.sh            create the indices (recreates them if they exist)
@@ -37,6 +39,10 @@
 #   :check from('dsl-logs-*').where((c) => eq(c.missing, lit.str('x')))         # unmapped_column
 #   :check from('dsl-logs-*').stats((c) => ({ s: sum(c.message) }))             # no_instance: sum over text
 #
+#   -- the risk score calculation, written with the DSL (src/examples/risk_scores.ts)
+#   :check riskScoresQuery({ identifierField: 'host.name', afterKeys: { lower: 'a' }, pageSize: 100, index: 'dsl-alerts' })
+#   :q riskScoresQuery({ identifierField: 'host.name', afterKeys: { lower: 'a' }, pageSize: 100 })
+#
 #   -- the query without asking the cluster: ES|QL, columns read, principal type
 #   :q from('dsl-logs-*').where((c) => gt(c.bytes, lit.long(100))).keep('host.name', 'bytes')
 #   :toggle print-core        # also show the elaborated Core in :q
@@ -59,12 +65,12 @@ json() {
 }
 
 teardown() {
-  json -X DELETE "${ES_URL}/dsl-logs-a,dsl-logs-b?ignore_unavailable=true" >/dev/null
+  json -X DELETE "${ES_URL}/dsl-logs-a,dsl-logs-b,dsl-alerts?ignore_unavailable=true" >/dev/null
 }
 
 if [[ "${1:-}" == "teardown" ]]; then
   teardown
-  echo "deleted dsl-logs-a and dsl-logs-b"
+  echo "deleted dsl-logs-a, dsl-logs-b and dsl-alerts"
   exit 0
 fi
 
@@ -105,13 +111,36 @@ json -X PUT "${ES_URL}/dsl-logs-b" -d "{
   } }
 }" >/dev/null
 
+json -X PUT "${ES_URL}/dsl-alerts" -d '{
+  "mappings": { "properties": {
+    "@timestamp": { "type": "date" },
+    "host": { "properties": { "name": { "type": "keyword" } } },
+    "user": { "properties": { "name": { "type": "keyword" } } },
+    "event": { "properties": { "kind": { "type": "keyword" } } },
+    "kibana": { "properties": { "alert": { "properties": {
+      "risk_score": { "type": "float" },
+      "uuid": { "type": "keyword" },
+      "rule": { "properties": {
+        "name": { "type": "keyword" },
+        "uuid": { "type": "keyword" }
+      } }
+    } } } }
+  } }
+}' >/dev/null
+
 es -X POST "${ES_URL}/_bulk?refresh=true" -H 'Content-Type: application/x-ndjson' --data-binary @- >/dev/null <<'EOF'
 {"index":{"_index":"dsl-logs-a"}}
 {"@timestamp":"2026-10-13T08:00:00Z","message":"login ok","host":{"name":"web-1"},"user":{"name":"ana"},"event":{"kind":"event"},"client":{"ip":"10.0.0.1"},"agent":{"version":"9.1.0"},"bytes":512,"status":200,"risk":10.5,"ok":true,"location":"48.85,2.35","tags":["auth"],"size":10,"name":"alpha","only_a":"x"}
 {"index":{"_index":"dsl-logs-a"}}
 {"@timestamp":"2026-10-13T08:05:00Z","message":"login failed","host":{"name":"web-2"},"user":{"name":"bob"},"event":{"kind":"alert"},"client":{"ip":"10.0.0.2"},"agent":{"version":"9.1.0"},"bytes":128,"status":401,"risk":73.2,"ok":false,"location":"51.50,-0.12","tags":["auth","failed"],"size":20,"name":"beta"}
+{"index":{"_index":"dsl-alerts"}}
+{"@timestamp":"2026-10-13T09:00:00Z","host":{"name":"web-1"},"event":{"kind":"signal"},"kibana":{"alert":{"risk_score":73,"uuid":"a1","rule":{"name":"Brute force","uuid":"r1"}}}}
+{"index":{"_index":"dsl-alerts"}}
+{"@timestamp":"2026-10-13T09:05:00Z","host":{"name":"web-1"},"event":{"kind":"signal"},"kibana":{"alert":{"risk_score":47,"uuid":"a2","rule":{"name":"Odd login","uuid":"r2"}}}}
+{"index":{"_index":"dsl-alerts"}}
+{"@timestamp":"2026-10-13T09:10:00Z","host":{"name":"web-2"},"event":{"kind":"signal"},"kibana":{"alert":{"risk_score":21,"uuid":"a3","rule":{"name":"Port scan","uuid":"r3"}}}}
 {"index":{"_index":"dsl-logs-b"}}
 {"@timestamp":"2026-10-13T08:10:00Z","message":"upload","host":{"name":"web-1"},"user":{"name":"ana"},"event":{"kind":"event"},"client":{"ip":"10.0.0.3"},"agent":{"version":"9.2.0"},"bytes":4096,"status":201,"risk":5.0,"ok":true,"location":"40.71,-74.0","tags":["upload"],"size":"large","name":"gamma","only_b":"y"}
 EOF
 
-es "${ES_URL}/_cat/indices/dsl-logs-*?v&h=index,docs.count&s=index"
+es "${ES_URL}/_cat/indices/dsl-*?v&h=index,docs.count&s=index"
