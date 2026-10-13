@@ -11,8 +11,8 @@ export type { Expr, AnyExpr } from './dsl/expr';
 export { lit, param } from './dsl/expr';
 export type { Operand, Scalarish } from './dsl/kinds';
 export type { ExprNode } from './surface/expr';
-export type { EsqlType } from './esql_type';
-export type { Kind } from './kind';
+export type { EsqlType } from './vocabulary/esql_type';
+export type { Kind } from './vocabulary/kind';
 export {
   abs,
   add,

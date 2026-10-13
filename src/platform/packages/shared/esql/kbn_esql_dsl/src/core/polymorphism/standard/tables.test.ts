@@ -11,7 +11,7 @@ import { functionDefinitions } from '@elastic/esql-definitions/functions';
 import { operatorDefinitions } from '@elastic/esql-definitions/operators';
 import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';
 import type { BinaryTable, UnaryTable } from './tables';
-import { ESQL_TYPES } from '../../../esql_type';
+import { ESQL_TYPES } from '../../../vocabulary/esql_type';
 
 /**
  * The tables drive both the TypeScript signatures and the runtime checks, so they must agree

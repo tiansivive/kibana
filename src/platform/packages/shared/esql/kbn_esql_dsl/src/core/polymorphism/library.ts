@@ -7,8 +7,8 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../../esql_type';
-import type { KindSignature } from '../../kind';
+import type { EsqlType } from '../../vocabulary/esql_type';
+import type { KindSignature } from '../../vocabulary/kind';
 import type { Poly } from '../type';
 import type { Instance, Protocol } from './protocol';
 

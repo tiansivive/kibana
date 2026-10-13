@@ -9,8 +9,8 @@
 
 import * as Print from '../../core/print';
 import { diagnostic } from '../../diagnostics/diagnostic';
-import { withEntry } from '../../immutable';
-import type { EsqlType } from '../../esql_type';
+import { withEntry } from '../../utils/immutable';
+import type { EsqlType } from '../../vocabulary/esql_type';
 import type { Mono } from '../../core/type';
 import { instancesOf } from '../../core/polymorphism/library';
 import type { Library } from '../../core/polymorphism/library';

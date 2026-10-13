@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../../esql_type';
+import type { EsqlType } from '../../vocabulary/esql_type';
 
 /**
  * A protocol is a named predicate over types, declared once. An instance is one ground fact that

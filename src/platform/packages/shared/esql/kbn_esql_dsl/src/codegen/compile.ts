@@ -10,7 +10,7 @@
 import { Builder, ComposerQuery } from '@elastic/esql';
 import type { ESQLAstCommand, ESQLAstExpression, ESQLOrderExpression } from '@elastic/esql';
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
-import type { EsqlType } from '../esql_type';
+import type { EsqlType } from '../vocabulary/esql_type';
 
 /**
  * Prints a Core through `@elastic/esql`. The result is a fresh `ComposerQuery`: call `print()`

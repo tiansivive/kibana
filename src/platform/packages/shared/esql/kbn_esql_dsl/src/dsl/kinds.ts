@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { Kind } from '../kind';
+import type { Kind } from '../vocabulary/kind';
 
 export type Operand = Exclude<Kind, 'grouping'>;
 export type Scalarish = 'const' | 'scalar';

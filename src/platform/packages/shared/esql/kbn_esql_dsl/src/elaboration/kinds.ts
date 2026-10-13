@@ -9,7 +9,7 @@
 
 import { diagnostic } from '../diagnostics/diagnostic';
 import type { Origin } from '../diagnostics/origin';
-import type { Kind } from '../kind';
+import type { Kind } from '../vocabulary/kind';
 import type { LibraryFunction } from '../core/polymorphism/library';
 import { none, report } from './solve/constraints';
 import type { Emit } from './solve/constraints';

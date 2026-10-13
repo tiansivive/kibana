@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { KindSignature, ParamKind } from '../../../kind';
+import type { KindSignature, ParamKind } from '../../../vocabulary/kind';
 import { esqlType, varType } from '../../type';
 import type { Mono, Requires } from '../../type';
 import type { LibraryFunction } from '../library';

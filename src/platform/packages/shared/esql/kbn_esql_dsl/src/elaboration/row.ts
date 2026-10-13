@@ -9,8 +9,8 @@
 
 import { diagnostic } from '../diagnostics/diagnostic';
 import type { Origin } from '../diagnostics/origin';
-import type { EsqlType } from '../esql_type';
-import { withEntry, withoutKey } from '../immutable';
+import type { EsqlType } from '../vocabulary/esql_type';
+import { withEntry, withoutKey } from '../utils/immutable';
 import { esqlType, metaType, sourceMeta } from '../core/type';
 import type { Mono } from '../core/type';
 import { constrain, equal, none, report, wanted } from './solve/constraints';

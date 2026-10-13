@@ -9,7 +9,7 @@
 
 import { makeLibrary } from '../core/polymorphism/library';
 import { standardLibrary } from '../core/polymorphism/standard/standard';
-import type { Kind } from '../kind';
+import type { Kind } from '../vocabulary/kind';
 import { callKind } from './kinds';
 
 const origin = { path: 'call' };

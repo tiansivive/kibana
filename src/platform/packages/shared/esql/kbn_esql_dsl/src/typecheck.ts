@@ -18,7 +18,7 @@ import { principal } from './elaboration/solve/principal';
 import type { Principal } from './elaboration/solve/principal';
 import { solve } from './elaboration/solve/solve';
 import type { Solution } from './elaboration/solve/solution';
-import type { EsqlType } from './esql_type';
+import type { EsqlType } from './vocabulary/esql_type';
 import type { QueryAst } from './surface/query';
 
 export interface TypecheckOptions {
