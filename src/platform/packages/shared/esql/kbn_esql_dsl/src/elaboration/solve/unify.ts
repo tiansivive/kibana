@@ -9,7 +9,7 @@
 
 import * as Print from '../../core/print';
 import { diagnostic } from '../../diagnostics/diagnostic';
-import type { Origin } from '../../diagnostics/origin';
+import type { Location } from '../../diagnostics/location';
 import { withEntry } from '../../utils/immutable';
 import type { Meta, Mono } from '../../core/type';
 import { resolve } from './solution';
@@ -20,7 +20,7 @@ export const unify = (
   solution: Solution,
   found: Mono,
   expected: Mono,
-  origin: Origin,
+  location: Location,
   note: string
 ): Solution => {
   const a = resolve(solution, found);
@@ -35,7 +35,7 @@ export const unify = (
             diagnostic(
               'type_conflict',
               `${note} ${Print.esqlType(b.esql)}, found ${Print.esqlType(a.esql)}`,
-              origin
+              location
             ),
           ],
         };

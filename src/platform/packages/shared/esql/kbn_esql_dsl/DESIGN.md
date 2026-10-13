@@ -231,8 +231,9 @@ src/
   elaboration/
     bidir.ts, row.ts          AST to Core, and the open or closed column row
     kinds.ts                  applies kind signatures to argument kinds
+    locate.ts                 the only place that spells paths, meta names and hole names
     solve/                    constraints, unify, decide, solve, solution, guidance
-  diagnostics/                origin.ts, diagnostic.ts
+  diagnostics/                location.ts (a path into the query AST), diagnostic.ts
   codegen/compile.ts          Core to ES|QL
   utils/immutable.ts          immutable map helpers
 ```

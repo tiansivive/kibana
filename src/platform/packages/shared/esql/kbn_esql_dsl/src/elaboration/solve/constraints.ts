@@ -7,8 +7,9 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { Diagnostic } from '../../diagnostics/diagnostic';
-import type { Origin } from '../../diagnostics/origin';
+import { diagnostic } from '../../diagnostics/diagnostic';
+import type { Diagnostic, DiagnosticCode } from '../../diagnostics/diagnostic';
+import type { Location } from '../../diagnostics/location';
 import type { Hole, Mono } from '../../core/type';
 
 export type Constraint = Equal | Wanted;
@@ -18,7 +19,7 @@ export interface Equal {
   readonly tag: 'equal';
   readonly found: Mono;
   readonly expected: Mono;
-  readonly origin: Origin;
+  readonly location: Location;
   readonly note: string;
 }
 
@@ -28,7 +29,7 @@ export interface Wanted {
   readonly hole: Hole;
   readonly protocol: string;
   readonly args: readonly Mono[];
-  readonly origin: Origin;
+  readonly location: Location;
 }
 
 /** What elaborating a piece of the query produces. Pieces combine with `merge`. */
@@ -54,11 +55,15 @@ export const constrain = (...constraints: readonly Constraint[]): Emit => ({
 
 export const report = (...diagnostics: readonly Diagnostic[]): Emit => ({ ...none, diagnostics });
 
-export const equal = (found: Mono, expected: Mono, origin: Origin, note: string): Equal => ({
+/** One problem at one place. */
+export const problem = (code: DiagnosticCode, message: string, location: Location): Emit =>
+  report(diagnostic(code, message, location));
+
+export const equal = (found: Mono, expected: Mono, location: Location, note: string): Equal => ({
   tag: 'equal',
   found,
   expected,
-  origin,
+  location,
   note,
 });
 
@@ -66,5 +71,5 @@ export const wanted = (
   hole: Hole,
   protocol: string,
   args: readonly Mono[],
-  origin: Origin
-): Wanted => ({ tag: 'wanted', hole, protocol, args, origin });
+  location: Location
+): Wanted => ({ tag: 'wanted', hole, protocol, args, location });

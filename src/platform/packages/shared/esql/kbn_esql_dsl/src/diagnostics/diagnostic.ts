@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { Origin } from './origin';
+import type { Location } from './location';
 
 export type DiagnosticCode =
   | 'unknown_column'
@@ -26,14 +26,14 @@ export type DiagnosticCode =
 export interface Diagnostic {
   readonly code: DiagnosticCode;
   readonly message: string;
-  readonly origin: Origin;
+  readonly location: Location;
   /** Other constraints that contributed to the failure. */
-  readonly related: readonly Origin[];
+  readonly related: readonly Location[];
 }
 
 export const diagnostic = (
   code: DiagnosticCode,
   message: string,
-  origin: Origin,
-  related: readonly Origin[] = []
-): Diagnostic => ({ code, message, origin, related });
+  location: Location,
+  related: readonly Location[] = []
+): Diagnostic => ({ code, message, location, related });

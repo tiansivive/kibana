@@ -8,10 +8,10 @@
  */
 
 import { diagnostic } from '../diagnostics/diagnostic';
-import type { Origin } from '../diagnostics/origin';
+import type { Location } from '../diagnostics/location';
 import type { Kind } from '../vocabulary/kind';
 import type { LibraryFunction } from '../core/polymorphism/library';
-import { none, report } from './solve/constraints';
+import { none, problem, report } from './solve/constraints';
 import type { Emit } from './solve/constraints';
 
 /**
@@ -24,22 +24,34 @@ import type { Emit } from './solve/constraints';
 export const callKind = (
   fn: LibraryFunction,
   kinds: readonly Kind[],
-  origin: Origin
+  location: Location
 ): { kind: Kind; emit: Emit } => {
   const { params, result } = fn.kinds;
   const argumentsFor = (wanted: string) => kinds.filter((_, i) => params[i] === wanted);
   const open = argumentsFor('k');
   const constants = params.flatMap((p, i) =>
     p === 'const' && i < kinds.length && kinds[i] !== 'const'
-      ? [diagnostic('constant_required', `argument ${i} of ${fn.name} must be a constant`, origin)]
+      ? [
+          diagnostic(
+            'constant_required',
+            `argument ${i} of ${fn.name} must be a constant`,
+            location
+          ),
+        ]
       : []
   );
   const nested = argumentsFor('scalar').includes('agg')
-    ? [diagnostic('nested_aggregate', `${fn.name} cannot take an aggregate as an argument`, origin)]
+    ? [
+        diagnostic(
+          'nested_aggregate',
+          `${fn.name} cannot take an aggregate as an argument`,
+          location
+        ),
+      ]
     : [];
   const mixed =
     open.includes('agg') && open.includes('scalar')
-      ? [diagnostic('mixed_kinds', `${fn.name} mixes an aggregate with a per-row value`, origin)]
+      ? [diagnostic('mixed_kinds', `${fn.name} mixes an aggregate with a per-row value`, location)]
       : [];
   return {
     kind: result === 'k' ? joined(open) : result,
@@ -48,21 +60,21 @@ export const callKind = (
 };
 
 /** Commands that take a value per row, such as `WHERE`, reject an aggregate. */
-export const expectScalar = (kind: Kind, what: string, origin: Origin): Emit =>
+export const expectScalar = (kind: Kind, what: string, location: Location): Emit =>
   kind === 'const' || kind === 'scalar'
     ? none
-    : report(diagnostic('aggregate_in_scalar_context', `${what} cannot use an aggregate`, origin));
+    : problem('aggregate_in_scalar_context', `${what} cannot use an aggregate`, location);
 
 /** An aggregation of `STATS` must be an aggregate. */
-export const expectAggregate = (kind: Kind, name: string, origin: Origin): Emit =>
+export const expectAggregate = (kind: Kind, name: string, location: Location): Emit =>
   kind === 'agg'
     ? none
-    : report(diagnostic('not_aggregate', `${name} must be an aggregate function in STATS`, origin));
+    : problem('not_aggregate', `${name} must be an aggregate function in STATS`, location);
 
 /** A key of `STATS ... BY` cannot be an aggregate. */
-export const rejectAggregateKey = (kind: Kind, name: string, origin: Origin): Emit =>
+export const rejectAggregateKey = (kind: Kind, name: string, location: Location): Emit =>
   kind === 'agg'
-    ? report(diagnostic('invalid_grouping', `${name} cannot group by an aggregate`, origin))
+    ? problem('invalid_grouping', `${name} cannot group by an aggregate`, location)
     : none;
 
 const joined = (kinds: readonly Kind[]): Kind =>

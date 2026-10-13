@@ -11,17 +11,17 @@ import type { Core, CoreCommand, CoreExpr } from '../core/terms';
 import { esqlType, metaType } from '../core/type';
 import type { Hole, Mono } from '../core/type';
 import type { Library } from '../core/polymorphism/library';
-import { diagnostic } from '../diagnostics/diagnostic';
-import type { Origin } from '../diagnostics/origin';
+import type { Location } from '../diagnostics/location';
 import type { EsqlType } from '../vocabulary/esql_type';
 import { withEntry } from '../utils/immutable';
 import type { Kind } from '../vocabulary/kind';
 import type { ExprNode } from '../surface/expr';
 import type { CommandNode, QueryAst } from '../surface/query';
 import { callKind, expectAggregate, expectScalar, rejectAggregateKey } from './kinds';
+import * as Locate from './locate';
 import { closedRow, define, demand, drop, openRow, schemaRow } from './row';
 import type { Row } from './row';
-import { constrain, equal, merge, none, report, wanted } from './solve/constraints';
+import { constrain, equal, merge, none, problem, wanted } from './solve/constraints';
 import type { Emit } from './solve/constraints';
 
 export interface Elaboration {
@@ -63,14 +63,21 @@ interface Step {
 }
 
 const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step => {
-  const base = `pipe[${index}].${cmd.tag}`;
+  const location = Locate.command(index, cmd.tag);
   switch (cmd.tag) {
     case 'where': {
-      const cond = perRow(library, row, cmd.cond, `${base}.cond`, 'WHERE', esqlType('boolean'));
+      const cond = perRow(
+        library,
+        row,
+        cmd.cond,
+        Locate.field(location, 'cond'),
+        'WHERE',
+        esqlType('boolean')
+      );
       return { row, core: { tag: 'where', cond: cond.core }, emit: cond.emit };
     }
     case 'eval': {
-      const value = perRow(library, row, cmd.expr, `${base}.expr`, 'EVAL');
+      const value = perRow(library, row, cmd.expr, Locate.field(location, 'expr'), 'EVAL');
       return {
         row: define(row, cmd.name, value.core.type),
         core: { tag: 'eval', name: cmd.name, expr: value.core },
@@ -78,17 +85,17 @@ const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step
       };
     }
     case 'stats': {
-      const aggs = cmd.aggs.map((a) => ({
-        name: a.name,
-        value: synth(library, row, a.expr, `${base}.aggs.${a.name}`),
-      }));
-      const keys = cmd.by.map((b) => ({
-        name: b.name,
-        value: synth(library, row, b.expr, `${base}.by.${b.name}`),
-      }));
+      const aggs = cmd.aggs.map((a) => {
+        const at = Locate.aggregate(location, a.name);
+        return { name: a.name, location: at, value: synth(library, row, a.expr, at) };
+      });
+      const keys = cmd.by.map((b) => {
+        const at = Locate.groupKey(location, b.name);
+        return { name: b.name, location: at, value: synth(library, row, b.expr, at) };
+      });
       const checks = [
-        ...aggs.map((a) => expectAggregate(a.value.kind, a.name, at(`${base}.aggs.${a.name}`))),
-        ...keys.map((k) => rejectAggregateKey(k.value.kind, k.name, at(`${base}.by.${k.name}`))),
+        ...aggs.map((a) => expectAggregate(a.value.kind, a.name, a.location)),
+        ...keys.map((k) => rejectAggregateKey(k.value.kind, k.name, k.location)),
       ];
       return {
         row: closedRow(
@@ -106,7 +113,8 @@ const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step
       };
     }
     case 'keep': {
-      const found = cmd.cols.map((name) => ({ name, d: demand(row, name, at(`${base}.cols`)) }));
+      const columns = Locate.field(location, 'cols');
+      const found = cmd.cols.map((name) => ({ name, d: demand(row, name, columns) }));
       return {
         row: closedRow(
           found.reduce<ReadonlyMap<string, Mono>>(
@@ -118,26 +126,29 @@ const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step
         emit: merge(...found.map((f) => f.d.emit)),
       };
     }
-    case 'drop':
+    case 'drop': {
+      const columns = Locate.field(location, 'cols');
       return {
         row: drop(row, cmd.cols),
         core: { tag: 'drop', cols: cmd.cols },
-        emit: merge(...cmd.cols.map((name) => demand(row, name, at(`${base}.cols`)).emit)),
+        emit: merge(...cmd.cols.map((name) => demand(row, name, columns).emit)),
       };
+    }
     case 'sort': {
-      const keys = cmd.keys.map((key, i) => ({
-        dir: key.dir,
-        value: perRow(library, row, key.expr, `${base}.keys[${i}]`, 'SORT'),
-        path: `${base}.keys[${i}]`,
-      }));
+      const keys = cmd.keys.map((key, i) => {
+        const at = Locate.sortKey(location, i);
+        return { dir: key.dir, location: at, value: perRow(library, row, key.expr, at, 'SORT') };
+      });
       return {
         row,
         core: { tag: 'sort', keys: keys.map((k) => ({ expr: k.value.core, dir: k.dir })) },
         emit: merge(
-          ...keys.map(({ value, path }) =>
+          ...keys.map((k) =>
             merge(
-              value.emit,
-              constrain(wanted(`${path}#orderable`, 'Orderable', [value.core.type], at(path)))
+              k.value.emit,
+              constrain(
+                wanted(Locate.orderable(k.location), 'Orderable', [k.value.core.type], k.location)
+              )
             )
           )
         ),
@@ -165,14 +176,14 @@ const perRow = (
   library: Library,
   row: Row,
   node: ExprNode,
-  path: string,
+  location: Location,
   command: string,
   expected?: Mono
 ): Typed => {
   const value = expected
-    ? check(library, row, node, expected, path, `${command} needs`)
-    : synth(library, row, node, path);
-  return { ...value, emit: merge(value.emit, expectScalar(value.kind, command, at(path))) };
+    ? check(library, row, node, expected, location, `${command} needs`)
+    : synth(library, row, node, location);
+  return { ...value, emit: merge(value.emit, expectScalar(value.kind, command, location)) };
 };
 
 /** Elaborates an expression against the type its context expects. */
@@ -181,22 +192,21 @@ const check = (
   row: Row,
   node: ExprNode,
   expected: Mono,
-  path: string,
+  location: Location,
   note: string
 ): Typed => {
-  const found = synth(library, row, node, path);
+  const found = synth(library, row, node, location);
   return {
     ...found,
-    emit: merge(found.emit, constrain(equal(found.core.type, expected, at(path), note))),
+    emit: merge(found.emit, constrain(equal(found.core.type, expected, location, note))),
   };
 };
 
 /** Finds the type of an expression from the expression itself. */
-const synth = (library: Library, row: Row, node: ExprNode, path: string): Typed => {
-  const origin = at(path);
+const synth = (library: Library, row: Row, node: ExprNode, location: Location): Typed => {
   switch (node.tag) {
     case 'col': {
-      const { type, emit } = demand(row, node.name, origin);
+      const { type, emit } = demand(row, node.name, location);
       return { core: { tag: 'col', name: node.name, type }, kind: 'scalar', emit };
     }
     case 'lit':
@@ -212,18 +222,18 @@ const synth = (library: Library, row: Row, node: ExprNode, path: string): Typed 
         emit: none,
       };
     case 'ann': {
-      const inner = synth(library, row, node.expr, `${path}.expr`);
+      const inner = synth(library, row, node.expr, Locate.field(location, 'expr'));
       return {
         core: { tag: 'ann', expr: inner.core, type: inner.core.type },
         kind: inner.kind,
         emit: merge(
           inner.emit,
-          constrain(equal(inner.core.type, esqlType(node.ty), origin, 'the declaration says'))
+          constrain(equal(inner.core.type, esqlType(node.ty), location, 'the declaration says'))
         ),
       };
     }
     case 'call':
-      return call(library, row, node, path);
+      return call(library, row, node, location);
   }
 };
 
@@ -231,45 +241,41 @@ const call = (
   library: Library,
   row: Row,
   node: Extract<ExprNode, { tag: 'call' }>,
-  path: string
+  location: Location
 ): Typed => {
-  const origin = at(path);
   const fn = library.functions.get(node.fn);
-  const unresolved = (emit: Emit, args: readonly Typed[]): Typed => ({
-    core: {
-      tag: 'call',
-      fn: node.fn,
-      args: args.map((a) => a.core),
-      type: metaType(`${path}!`),
-      instances: [],
-    },
-    kind: 'scalar',
-    emit: merge(...args.map((a) => a.emit), emit),
-  });
+  const unresolved = (emit: Emit): Typed => {
+    const args = node.args.map((a, i) => synth(library, row, a, Locate.arg(location, i)));
+    return {
+      core: {
+        tag: 'call',
+        fn: node.fn,
+        args: args.map((a) => a.core),
+        type: metaType(Locate.untyped(location)),
+        instances: [],
+      },
+      kind: 'scalar',
+      emit: merge(...args.map((a) => a.emit), emit),
+    };
+  };
   if (!fn) {
-    return unresolved(
-      report(diagnostic('unknown_function', `unknown function ${node.fn}`, origin)),
-      node.args.map((a, i) => synth(library, row, a, `${path}.args[${i}]`))
-    );
+    return unresolved(problem('unknown_function', `unknown function ${node.fn}`, location));
   }
   if (fn.type.params.length !== node.args.length) {
     return unresolved(
-      report(
-        diagnostic('arity', `${node.fn} does not take ${node.args.length} argument(s)`, origin)
-      ),
-      node.args.map((a, i) => synth(library, row, a, `${path}.args[${i}]`))
+      problem('arity', `${node.fn} does not take ${node.args.length} argument(s)`, location)
     );
   }
   // The function's type is instantiated, and each argument is checked against its parameter.
-  const inst = instantiate(path);
+  const inst = instantiate(location);
   const args = node.args.map((a, i) =>
-    check(library, row, a, inst(fn.type.params[i]), `${path}.args[${i}]`, `${fn.name} needs`)
+    check(library, row, a, inst(fn.type.params[i]), Locate.arg(location, i), `${fn.name} needs`)
   );
-  const holes: readonly Hole[] = fn.type.requires.map((_, k) => `${path}#${k}`);
+  const holes: readonly Hole[] = fn.type.requires.map((_, k) => Locate.instance(location, k));
   const { kind, emit: kindEmit } = callKind(
     fn,
     args.map((a) => a.kind),
-    origin
+    location
   );
   return {
     core: {
@@ -284,16 +290,14 @@ const call = (
       ...args.map((a) => a.emit),
       kindEmit,
       constrain(
-        ...fn.type.requires.map((r, k) => wanted(holes[k], r.protocol, r.args.map(inst), origin))
+        ...fn.type.requires.map((r, k) => wanted(holes[k], r.protocol, r.args.map(inst), location))
       )
     ),
   };
 };
 
-/** A type variable of a function's type at the call at `path` is the meta `path$name`. */
+/** Each type variable of a function's type becomes a meta named for the call it is at. */
 const instantiate =
-  (path: string) =>
+  (location: Location) =>
   (term: Mono): Mono =>
-    term.tag === 'var' ? metaType(`${path}$${term.name}`) : term;
-
-const at = (path: string): Origin => ({ path });
+    term.tag === 'var' ? metaType(Locate.typeVariable(location, term.name)) : term;

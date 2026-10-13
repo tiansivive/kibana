@@ -52,7 +52,7 @@ export const decide = (
     const improved = args.reduce(
       (s, arg, i) =>
         arg.tag === 'meta'
-          ? unify(s, { tag: 'esql', esql: found[i] }, arg, w.origin, w.protocol)
+          ? unify(s, { tag: 'esql', esql: found[i] }, arg, w.location, w.protocol)
           : s,
       solution
     );
@@ -67,7 +67,7 @@ export const decide = (
 
 /** One failure per place: once a call has been reported, its other requirements stay quiet. */
 const noInstance = (solution: Solution, w: Wanted, args: readonly Mono[]): Solution =>
-  solution.diagnostics.some((d) => d.origin.path === w.origin.path)
+  solution.diagnostics.some((d) => d.location.path === w.location.path)
     ? solution
     : {
         ...solution,
@@ -76,7 +76,7 @@ const noInstance = (solution: Solution, w: Wanted, args: readonly Mono[]): Solut
           diagnostic(
             'no_instance',
             `${w.protocol} has no instance for (${args.map((a) => Print.ty(a)).join(', ')})`,
-            w.origin
+            w.location
           ),
         ],
       };

@@ -37,7 +37,7 @@ const describe = (q, options) => {
     result.ok
       ? '\nchecks: ok'
       : `\nproblems:\n${result.diagnostics
-          .map((d) => `  ${d.origin.path}: ${d.message}`)
+          .map((d) => `  ${d.location.path}: ${d.message}`)
           .join('\n')}`,
     '\ncolumns read:',
     ...[...result.required].map(
