@@ -54,7 +54,9 @@ export interface Q<G extends object> {
  * column dropped from an open row is `Dropped`, which no function accepts.
  */
 export type Cols<G> = {
-  readonly [K in keyof G & string]: [G[K]] extends [ExprType] ? Expr<G[K], 'scalar'> : never;
+  readonly [K in keyof G as K extends string ? K : never]: [G[K]] extends [ExprType]
+    ? Expr<G[K], 'scalar'>
+    : never;
 } & { readonly [K in Lacked<G>]: Dropped };
 
 export type Stage<A extends object, B extends object> = (q: Q<A>) => Q<B>;
@@ -79,16 +81,23 @@ export interface Dropped {
 
 /** A row's schema after `EVAL` adds or replaces the column `N`. */
 type Extend<G, N extends string, T extends ExprType> = Simplify<
-  Omit<G, N | typeof lacksBrand> & Record<N, T> & Lacking<Exclude<Lacked<G>, N>>
+  Without<G, N | typeof lacksBrand> & Record<N, T> & Lacking<Exclude<Lacked<G>, N>>
 >;
+
+/**
+ * `Omit` that keeps the named properties of a schema that also has an index signature, which is
+ * what an open row is. `Omit` goes through `keyof G`, which is `string` for such a schema and
+ * swallows every named property.
+ */
+type Without<G, K extends PropertyKey> = { [P in keyof G as P extends K ? never : P]: G[P] };
 
 /**
  * A row's schema after `DROP`. A closed row loses the column. An open row cannot, since it is any
  * column, so it remembers the columns it lacks.
  */
 type Remove<G, K extends string> = string extends keyof G
-  ? Simplify<Omit<G, K | typeof lacksBrand> & Lacking<Lacked<G> | K>>
-  : Simplify<Omit<G, K>>;
+  ? Simplify<Without<G, K | typeof lacksBrand> & Lacking<Lacked<G> | K>>
+  : Simplify<Without<G, K>>;
 
 /** A row's schema after `RENAME`: the column keeps its type under the new name. */
 type Renamed<G, Old extends string, New extends string> = G[Old &
