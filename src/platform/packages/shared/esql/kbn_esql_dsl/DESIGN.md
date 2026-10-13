@@ -176,7 +176,6 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 - **Names are quoted only when they must be:** `` `host name` ``, `` `1abc` ``, and `@timestamp` as is.
 - **A parameter prints as `?name`.** The caller supplies its value.
 - **A declaration prints as the expression it declares.** It is a typing device.
-- **Printing a typed query is checked by parsing it back** with `@elastic/esql`'s parser.
 
 `Print.core(core, solution, options)` shows the elaborated Core as an indented tree: every expression with its type, and every call with the instances it needed. It looks types up in the solution as it prints, and shows a type that is still unknown as its meta or as the explanation it is given.
 
@@ -203,7 +202,6 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 | Order independence | permuting constraints does not change the result |
 | Stage extraction | extracting an expression into a reusable stage does not change typability, except where `EVAL` materialises a column |
 | Monotone extension | adding an instance or a function does not change the result of a query that does not use it |
-| Elaboration round trip | printing, parsing with `@elastic/esql` and re-analysing gives the same types |
 
 ## Open questions that only ES can answer
 
@@ -261,13 +259,14 @@ Not yet implemented:
 
 ## Build order
 
-1. **Grow the library** as functions are needed.
-2. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
-3. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
+1. **Preflight** against a schema, static or read from `field_caps`.
+2. **Grow the library** as functions are needed.
+3. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
+4. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
 
 ## Out of scope
 
-`raw<T>()` escape hatch, multi-source rows (`LOOKUP JOIN`, `FROM a, b`, subqueries), wildcard `KEEP`/`DROP`, `enrich`, `grok`/`dissect`, `SET unmapped_fields`, the `field_caps` adapter, lazy diagnosis on error, stack-trace provenance, context-dependent numeric literals, subtyping, user-defined protocols or instances, optional and repeating parameters, and detection of unsatisfiable constraints between unknown types.
+`raw<T>()` escape hatch, multi-source rows (`LOOKUP JOIN`, `FROM a, b`, subqueries), wildcard `KEEP`/`DROP`, `enrich`, `grok`/`dissect`, `SET unmapped_fields`, lazy diagnosis on error, stack-trace provenance, context-dependent numeric literals, subtyping, user-defined protocols or instances, optional and repeating parameters, and detection of unsatisfiable constraints between unknown types.
 
 ## Risks
 
