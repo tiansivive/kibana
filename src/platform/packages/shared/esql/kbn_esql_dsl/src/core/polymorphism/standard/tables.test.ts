@@ -11,14 +11,14 @@ import { functionDefinitions } from '@elastic/esql-definitions/functions';
 import { operatorDefinitions } from '@elastic/esql-definitions/operators';
 import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';
 import type { BinaryTable, UnaryTable } from './tables';
-import { TYS } from './types';
+import { ESQL_TYPES } from '../../../esql_type';
 
 /**
  * The tables drive both the TypeScript signatures and the runtime checks, so they must agree
  * exactly with the published definitions, restricted to the types the DSL covers.
  */
 
-const inScope = (t: string): boolean => (TYS as readonly string[]).includes(t);
+const inScope = (t: string): boolean => (ESQL_TYPES as readonly string[]).includes(t);
 
 const findFunction = (name: string) => {
   const def = [...functionDefinitions, ...operatorDefinitions].find((d) => d.name === name);
@@ -31,12 +31,12 @@ const findFunction = (name: string) => {
 const expandBinary = (table: BinaryTable): string[] =>
   Object.entries(table)
     .flatMap(([a, row]) => Object.entries(row ?? {}).map(([b, r]) => `${a},${b}->${r}`))
-    .sort();
+    .toSorted();
 
 const expandUnary = (table: UnaryTable): string[] =>
   Object.entries(table)
     .map(([a, r]) => `${a}->${r}`)
-    .sort();
+    .toSorted();
 
 const binaryRows = (name: string): string[] =>
   findFunction(name)
@@ -44,7 +44,7 @@ const binaryRows = (name: string): string[] =>
       (s) => s.params.length === 2 && [...s.params.map((p) => p.type), s.returnType].every(inScope)
     )
     .map((s) => `${s.params[0].type},${s.params[1].type}->${s.returnType}`)
-    .sort();
+    .toSorted();
 
 const unaryRows = (name: string, arity = 1): string[] =>
   findFunction(name)
@@ -55,7 +55,7 @@ const unaryRows = (name: string, arity = 1): string[] =>
         [s.params[0].type, s.returnType].every(inScope)
     )
     .map((s) => `${s.params[0].type}->${s.returnType}`)
-    .sort();
+    .toSorted();
 
 describe('signature tables match @elastic/esql-definitions', () => {
   it.each([
@@ -88,7 +88,7 @@ describe('signature tables match @elastic/esql-definitions', () => {
           inScope(s.returnType)
       )
       .map((s) => `${s.params[0].type}->${s.returnType}`)
-      .sort();
+      .toSorted();
     expect(expandUnary(TOP)).toEqual(rows);
   });
 });

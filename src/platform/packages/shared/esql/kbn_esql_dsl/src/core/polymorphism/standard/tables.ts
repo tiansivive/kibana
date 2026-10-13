@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { Ty } from './types';
+import type { EsqlType } from '../../../esql_type';
 
 /**
  * Signature tables. Each is the single source for both the TypeScript signature and the runtime
@@ -82,5 +82,5 @@ export const TOP = {
   text: 'keyword',
 } as const;
 
-export type BinaryTable = { readonly [A in Ty]?: { readonly [B in Ty]?: Ty } };
-export type UnaryTable = { readonly [A in Ty]?: Ty };
+export type BinaryTable = { readonly [A in EsqlType]?: { readonly [B in EsqlType]?: EsqlType } };
+export type UnaryTable = { readonly [A in EsqlType]?: EsqlType };
