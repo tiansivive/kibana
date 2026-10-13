@@ -7,6 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
+import * as Print from '../../core/print';
 import { diagnostic } from '../../diagnostics/diagnostic';
 import type { Origin } from '../../diagnostics/origin';
 import { withEntry } from '../../immutable';
@@ -31,7 +32,11 @@ export const unify = (
           ...solution,
           diagnostics: [
             ...solution.diagnostics,
-            diagnostic('type_conflict', `${note} ${b.esql}, found ${a.esql}`, origin),
+            diagnostic(
+              'type_conflict',
+              `${note} ${Print.esqlType(b.esql)}, found ${Print.esqlType(a.esql)}`,
+              origin
+            ),
           ],
         };
   }

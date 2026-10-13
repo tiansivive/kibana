@@ -14,6 +14,8 @@ import { standardLibrary } from './core/polymorphism/standard/standard';
 import type { Diagnostic } from './diagnostics/diagnostic';
 import { elaborate } from './elaboration/bidir';
 import { candidates } from './elaboration/solve/guidance';
+import { principal } from './elaboration/solve/principal';
+import type { Principal } from './elaboration/solve/principal';
 import { solve } from './elaboration/solve/solve';
 import type { Solution } from './elaboration/solve/solution';
 import type { EsqlType } from './esql_type';
@@ -38,6 +40,8 @@ export interface Typechecked {
     readonly open: boolean;
     readonly lacks: readonly string[];
   };
+  /** The type of the whole query: unknown column types as variables, and what couples them. */
+  readonly principal: Principal;
   /** The elaborated query. A type that was not known when it was built is a meta. */
   readonly core: Core;
   /** What solving recorded. Whatever needs a type from the Core looks the meta up here, on demand. */
@@ -59,17 +63,15 @@ export const typecheck = (ast: QueryAst, options: TypecheckOptions = {}): Typech
 
   const sources = [...new Set(emit.sources)];
   const lacks = output.tail.tag === 'open' ? [...output.tail.lacks] : [];
-  const defined = [...output.fields].map(([name, type]): [string, readonly EsqlType[]] => [
-    name,
-    typesOf(type),
-  ]);
   // Source columns the query read but never named in the output still flow through an open row.
   const passedThrough =
     output.tail.tag === 'open'
       ? sources
           .filter((name) => !output.fields.has(name) && !lacks.includes(name))
-          .map((name): [string, readonly EsqlType[]] => [name, typesOf(metaType(sourceMeta(name)))])
+          .map((name): [string, Mono] => [name, metaType(sourceMeta(name))])
       : [];
+  const outputTypes = new Map([...output.fields, ...passedThrough]);
+  const open = output.tail.tag === 'open';
 
   return {
     ok: diagnostics.length === 0,
@@ -81,10 +83,17 @@ export const typecheck = (ast: QueryAst, options: TypecheckOptions = {}): Typech
       ])
     ),
     output: {
-      columns: new Map([...defined, ...passedThrough]),
-      open: output.tail.tag === 'open',
+      columns: new Map(
+        [...outputTypes].map(([name, type]): [string, readonly EsqlType[]] => [name, typesOf(type)])
+      ),
+      open,
       lacks,
     },
+    principal: principal(
+      solution,
+      { names: sources, open: options.schema === undefined },
+      { columns: outputTypes, open }
+    ),
     core,
     solution,
   };

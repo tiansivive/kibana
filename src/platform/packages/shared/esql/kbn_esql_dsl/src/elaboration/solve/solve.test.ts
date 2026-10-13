@@ -65,7 +65,7 @@ describe('solve: unification', () => {
       same(meta('a'), ty('keyword'), 'second'),
     ]);
     expect(solution.diagnostics.map((d) => d.code)).toEqual(['type_conflict']);
-    expect(solution.diagnostics[0].message).toBe('needs keyword, found long');
+    expect(solution.diagnostics[0].message).toBe('needs ES.keyword, found ES.long');
   });
 
   it('keeps a source column as the representative of the metas unified with it', () => {
@@ -91,7 +91,7 @@ describe('solve: instances', () => {
       want('hole', 'Numeric', meta('a')),
     ]);
     expect(solution.diagnostics.map((d) => d.code)).toEqual(['no_instance']);
-    expect(solution.diagnostics[0].message).toBe('Numeric has no instance for (keyword)');
+    expect(solution.diagnostics[0].message).toBe('Numeric has no instance for (ES.keyword)');
   });
 
   it('lets a dependency fix the rest once the determining arguments are known', () => {
