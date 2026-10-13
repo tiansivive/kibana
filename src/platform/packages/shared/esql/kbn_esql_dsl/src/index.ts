@@ -35,6 +35,10 @@ export {
 export type { Typechecked, TypecheckOptions } from './typecheck';
 export { typecheck } from './typecheck';
 export { compile } from './codegen/compile';
+export type { ColumnCheck, EsClient, Preflight } from './preflight/preflight';
+export { preflight } from './preflight/preflight';
+export type { DerivedSchema, FieldProblem } from './preflight/schema';
+export { schemaFromFieldCaps } from './preflight/schema';
 export type { Core, CoreCommand, CoreExpr } from './core/terms';
 export * as Print from './core/print';
 export type { Principal } from './elaboration/solve/principal';

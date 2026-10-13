@@ -21,7 +21,10 @@ export type DiagnosticCode =
   | 'constant_required'
   | 'aggregate_in_scalar_context'
   | 'not_aggregate'
-  | 'invalid_grouping';
+  | 'invalid_grouping'
+  | 'unmapped_column'
+  | 'conflicting_field_types'
+  | 'unsupported_field_type';
 
 export interface Diagnostic {
   readonly code: DiagnosticCode;
@@ -29,11 +32,20 @@ export interface Diagnostic {
   readonly location: Location;
   /** Other constraints that contributed to the failure. */
   readonly related: readonly Location[];
+  /** The source column the problem is about, when it is about one. */
+  readonly column?: string;
 }
 
 export const diagnostic = (
   code: DiagnosticCode,
   message: string,
   location: Location,
-  related: readonly Location[] = []
-): Diagnostic => ({ code, message, location, related });
+  related: readonly Location[] = [],
+  column?: string
+): Diagnostic => ({
+  code,
+  message,
+  location,
+  related,
+  ...(column === undefined ? {} : { column }),
+});
