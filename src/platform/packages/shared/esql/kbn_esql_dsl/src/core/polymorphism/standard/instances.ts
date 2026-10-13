@@ -7,8 +7,8 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import { ESQL_TYPES, isEsqlType } from '../../../esql_type';
-import type { EsqlType } from '../../../esql_type';
+import { ESQL_TYPES, isEsqlType } from '../../../vocabulary/esql_type';
+import type { EsqlType } from '../../../vocabulary/esql_type';
 import type { Instance } from '../protocol';
 import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM } from './tables';
 import type { BinaryTable } from './tables';

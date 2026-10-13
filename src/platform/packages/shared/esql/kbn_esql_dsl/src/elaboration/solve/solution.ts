@@ -8,7 +8,7 @@
  */
 
 import type { Diagnostic } from '../../diagnostics/diagnostic';
-import type { EsqlType } from '../../esql_type';
+import type { EsqlType } from '../../vocabulary/esql_type';
 import type { Hole, Meta, Mono } from '../../core/type';
 import type { Wanted } from './constraints';
 

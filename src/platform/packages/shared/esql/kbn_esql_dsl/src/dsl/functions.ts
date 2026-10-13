@@ -17,8 +17,8 @@ import type {
   SUM,
   TOP,
 } from '../core/polymorphism/standard/tables';
-import type { EsqlType } from '../esql_type';
-import type { Kind } from '../kind';
+import type { EsqlType } from '../vocabulary/esql_type';
+import type { Kind } from '../vocabulary/kind';
 import type { AnyExpr, Expr } from './expr';
 import { call, mk } from './expr';
 import type { CompatibleWith, Join, Operand, Scalarish } from './kinds';

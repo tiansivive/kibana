@@ -218,7 +218,7 @@ About eight `ROW ... | EVAL ... | LIMIT 0` queries against a local cluster settl
 
 ```
 src/
-  esql_type.ts, kind.ts       the ES|QL types and the kinds
+  vocabulary/                 esql_type.ts, kind.ts: the ES|QL types, the kinds and kind signatures
   typecheck.ts                typecheck(ast, { schema? }): elaborate, solve, report
   surface/                    the AST the DSL builds: expr.ts, query.ts
   dsl/                        the typed TypeScript layer: expr.ts, query.ts, functions.ts, kinds.ts
@@ -232,7 +232,7 @@ src/
     solve/                    constraints, unify, decide, solve, solution, guidance
   diagnostics/                origin.ts, diagnostic.ts
   codegen/compile.ts          Core to ES|QL
-  immutable.ts                immutable map helpers
+  utils/immutable.ts          immutable map helpers
 ```
 
 `core/print.ts` reads a `Solution` from `elaboration/solve`, while elaboration depends on `core`, so the two folders depend on each other.

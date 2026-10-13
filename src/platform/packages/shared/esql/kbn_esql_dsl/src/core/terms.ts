@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../esql_type';
+import type { EsqlType } from '../vocabulary/esql_type';
 import type { SortSpec } from '../surface/query';
 import type { Hole, Mono } from './type';
 

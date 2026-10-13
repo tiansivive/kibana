@@ -20,7 +20,7 @@ require('@kbn/setup-node-env');
 
 const dsl = require('./src');
 const { standardLibrary } = require('./src/core/polymorphism/standard/standard');
-const { ESQL_TYPES } = require('./src/esql_type');
+const { ESQL_TYPES } = require('./src/vocabulary/esql_type');
 const { candidates } = require('./src/elaboration/solve/guidance');
 
 // What `:toggle` switches. Kinds start hidden and the `where` lines start shown.

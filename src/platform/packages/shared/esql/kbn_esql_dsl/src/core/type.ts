@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../esql_type';
+import type { EsqlType } from '../vocabulary/esql_type';
 
 /** What the checker knows about a value's type: an ES|QL type, a meta not known yet, or in a function's type a variable. */
 export type Type = Mono | Poly;

@@ -10,8 +10,8 @@
 import { instancesOf } from '../../core/polymorphism/library';
 import type { Library } from '../../core/polymorphism/library';
 import type { Meta, Mono } from '../../core/type';
-import { ESQL_TYPES } from '../../esql_type';
-import type { EsqlType } from '../../esql_type';
+import { ESQL_TYPES } from '../../vocabulary/esql_type';
+import type { EsqlType } from '../../vocabulary/esql_type';
 import type { Wanted } from './constraints';
 import { resolve } from './solution';
 import type { Solution } from './solution';

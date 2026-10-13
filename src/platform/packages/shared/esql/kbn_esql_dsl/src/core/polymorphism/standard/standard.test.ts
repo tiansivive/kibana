@@ -10,8 +10,8 @@
 import { call, param } from '../../../dsl/expr';
 import type { AnyExpr } from '../../../dsl/expr';
 import { fromOpen } from '../../../dsl/query';
-import { ESQL_TYPES } from '../../../esql_type';
-import type { EsqlType } from '../../../esql_type';
+import { ESQL_TYPES } from '../../../vocabulary/esql_type';
+import type { EsqlType } from '../../../vocabulary/esql_type';
 import { typecheck } from '../../../typecheck';
 import { standardLibrary } from './standard';
 import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';

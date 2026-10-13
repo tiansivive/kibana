@@ -7,8 +7,8 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { EsqlType } from '../esql_type';
-import type { Kind } from '../kind';
+import type { EsqlType } from '../vocabulary/esql_type';
+import type { Kind } from '../vocabulary/kind';
 import type { ExprNode } from '../surface/expr';
 
 export declare const exprBrand: unique symbol;

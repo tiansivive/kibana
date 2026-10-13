@@ -10,7 +10,7 @@
 import * as Print from '../../core/print';
 import { diagnostic } from '../../diagnostics/diagnostic';
 import type { Origin } from '../../diagnostics/origin';
-import { withEntry } from '../../immutable';
+import { withEntry } from '../../utils/immutable';
 import type { Meta, Mono } from '../../core/type';
 import { resolve } from './solution';
 import type { Solution } from './solution';
