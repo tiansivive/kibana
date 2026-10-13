@@ -15,3 +15,17 @@
  * - `grouping`: a grouping function such as `BUCKET`, valid only in `BY`.
  */
 export type Kind = 'const' | 'scalar' | 'agg' | 'grouping';
+
+/**
+ * How a function uses kinds, written beside its type. Each parameter is `const` (must be a
+ * constant), `scalar` (a per-row or constant value, never an aggregate) or `k` (any kind). The
+ * result is `agg`, `grouping`, or `k`, the join of the arguments given to the `k` parameters. A
+ * scalar function is `(k, k) -> k`, an aggregate is `(scalar, const) -> agg`.
+ */
+export interface KindSignature {
+  readonly params: readonly ParamKind[];
+  readonly result: ResultKind;
+}
+
+export type ParamKind = 'const' | 'scalar' | 'k';
+export type ResultKind = 'agg' | 'grouping' | 'k';

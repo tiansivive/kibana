@@ -8,6 +8,7 @@
  */
 
 import type { EsqlType } from '../esql_type';
+import type { KindSignature } from '../kind';
 import { resolve } from '../elaboration/solve/solution';
 import type { Solution } from '../elaboration/solve/solution';
 import type { Principal } from '../elaboration/solve/principal';
@@ -31,6 +32,11 @@ export interface Names {
   readonly meta?: (meta: Meta) => string;
 }
 
+export interface FnOptions extends Names {
+  /** Shows the kind signature on a second line. On unless it is set to `false`. */
+  readonly kinds?: boolean;
+}
+
 /**
  * Shows the elaborated query as an indented tree: every expression with its type and every call
  * with the instances it needed. Types are looked up in the solution as they are printed, so the
@@ -51,12 +57,14 @@ export const ty = (type: Type, names: Names = {}): string =>
 
 export const esqlType = (type: EsqlType): string => `ES.${type}`;
 
-/** Shows a library function: its type, then how it may be used, which the type does not say. */
-export const fn = (f: LibraryFunction, names: Names = {}): string =>
-  `${f.name} :: ${ty(f.type, names)}  -- ${[
-    f.kind,
-    ...(f.constParams.length > 0 ? [`constant parameters ${f.constParams.join(', ')}`] : []),
-  ].join('; ')}`;
+/** Shows a library function: its type, and under it the kind signature that says where it may be used. */
+export const fn = (f: LibraryFunction, options: FnOptions = {}): string => {
+  const { kinds = true, ...names } = options;
+  return [
+    `${f.name} :: ${ty(f.type, names)}`,
+    ...(kinds ? [`${' '.repeat(f.name.length)} :: ${kindSignature(f.kinds)}`] : []),
+  ].join('\n');
+};
 
 /** The protocol facts of a type as `Protocol a b =>`, or nothing when there are none. */
 export const context = (requires: readonly Requires[], names: Names = {}): string => {
@@ -104,14 +112,15 @@ const poly = (type: Poly, names: Names): string => {
   return [
     variables.length > 0 ? `forall ${variables.join(' ')}. ` : '',
     context(type.requires, names),
-    `${parameters(type.params, names)} -> ${mono(type.result, names)}`,
+    `${parameters(type.params.map((p) => mono(p, names)))} -> ${mono(type.result, names)}`,
   ].join('');
 };
 
-const parameters = (params: readonly Mono[], names: Names): string =>
-  params.length === 1
-    ? mono(params[0], names)
-    : `(${params.map((p) => mono(p, names)).join(', ')})`;
+const kindSignature = (kinds: KindSignature): string =>
+  `${parameters(kinds.params)} -> ${kinds.result}`;
+
+const parameters = (shown: readonly string[]): string =>
+  shown.length === 1 ? shown[0] : `(${shown.join(', ')})`;
 
 const distinctMetas = (types: readonly Mono[]): readonly Meta[] =>
   types

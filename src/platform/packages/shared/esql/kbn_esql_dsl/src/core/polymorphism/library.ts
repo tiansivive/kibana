@@ -8,6 +8,7 @@
  */
 
 import type { EsqlType } from '../../esql_type';
+import type { KindSignature } from '../../kind';
 import type { Poly } from '../type';
 import type { Instance, Protocol } from './protocol';
 
@@ -18,13 +19,11 @@ export interface Library {
   readonly functions: ReadonlyMap<string, LibraryFunction>;
 }
 
-/** `kind` and `constParams` describe how a function may be used. They are not part of its type. */
+/** The kind signature says where the function may be used. It is not part of its type. */
 export interface LibraryFunction {
   readonly name: string;
-  readonly kind: 'scalar' | 'agg' | 'grouping';
-  /** Parameters ES|QL requires to be constants, by position. */
-  readonly constParams: readonly number[];
   readonly type: Poly;
+  readonly kinds: KindSignature;
 }
 
 /** Builds a library, rejecting instances of undeclared protocols or of the wrong arity. */
@@ -48,6 +47,9 @@ export const makeLibrary = (
         .filter((r) => declared.get(r.protocol)?.arity !== r.args.length)
         .map((r) => `${f.name} requires ${r.protocol} with the wrong arity or without declaring it`)
     ),
+    ...functions
+      .filter((f) => f.kinds.params.length !== f.type.params.length)
+      .map((f) => `${f.name} has a kind signature with a different number of parameters`),
     ...functions
       .filter((f, i) => functions.findIndex((other) => other.name === f.name) !== i)
       .map((f) => `${f.name} has more than one type`),

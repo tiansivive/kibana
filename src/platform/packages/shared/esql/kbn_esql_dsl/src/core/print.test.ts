@@ -72,10 +72,18 @@ describe('Print.ty', () => {
     );
   });
 
-  it('shows how a function may be used beside its type', () => {
+  it('shows the kind signature under the type, unless it is turned off', () => {
     const top = standardLibrary.functions.get('top');
+    const addition = standardLibrary.functions.get('add');
     expect(top && Print.fn(top)).toBe(
-      'top :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b  -- agg; constant parameters 1, 2'
+      [
+        'top :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b',
+        '    :: (scalar, const, const) -> agg',
+      ].join('\n')
+    );
+    expect(addition && Print.fn(addition)).toContain('\n    :: (k, k) -> k');
+    expect(addition && Print.fn(addition, { kinds: false })).toBe(
+      'add :: forall a b c. Arith a b c => (a, b) -> c'
     );
   });
 });
