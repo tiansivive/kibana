@@ -9,7 +9,7 @@
 
 import { call, param } from '../../../dsl/expr';
 import type { AnyExpr } from '../../../dsl/expr';
-import { fromOpen } from '../../../dsl/query';
+import { from } from '../../../dsl/query';
 import { ESQL_TYPES } from '../../../vocabulary/esql_type';
 import type { EsqlType } from '../../../vocabulary/esql_type';
 import { typecheck } from '../../../typecheck';
@@ -34,9 +34,7 @@ const scalarResult = (
   ...types: readonly EsqlType[]
 ): readonly EsqlType[] | undefined => {
   const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
-  const analysis = typecheck(
-    fromOpen('i').eval('r', () => call<EsqlType, 'scalar'>(fn, ...args)).ast
-  );
+  const analysis = typecheck(from('i').eval('r', () => call<EsqlType, 'scalar'>(fn, ...args)).ast);
   return analysis.ok ? analysis.output.columns.get('r') : undefined;
 };
 
@@ -46,7 +44,7 @@ const aggregateResult = (
 ): readonly EsqlType[] | undefined => {
   const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
   const analysis = typecheck(
-    fromOpen('i').stats(() => ({ r: call<EsqlType, 'agg'>(fn, ...args) })).ast
+    from('i').stats(() => ({ r: call<EsqlType, 'agg'>(fn, ...args) })).ast
   );
   return analysis.ok ? analysis.output.columns.get('r') : undefined;
 };

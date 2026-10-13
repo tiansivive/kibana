@@ -37,7 +37,7 @@ describe('query construction', () => {
   });
 
   it('records every command in order', () => {
-    const q = from<Doc>('logs-*')
+    const q = from('logs-*')
       .where((c) => and(gt(c.bytes, lit.long(1)), eq(c['host.name'], lit.str('a'))))
       .stats(
         (c) => ({ total: sum(c.bytes), avgRisk: round(avg(c.risk)), n: count(c.bytes) }),

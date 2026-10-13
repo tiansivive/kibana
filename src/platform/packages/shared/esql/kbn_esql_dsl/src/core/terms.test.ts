@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import { add, typecheck, fromOpen, gt, lit, param, resolve, sum, typed } from '..';
+import { add, typecheck, from, gt, lit, param, resolve, sum, typed } from '..';
 import type { CoreExpr } from '..';
 
 const firstExpr = (a: ReturnType<typeof typecheck>): CoreExpr => {
@@ -24,7 +24,7 @@ const firstExpr = (a: ReturnType<typeof typecheck>): CoreExpr => {
 describe('the Core, with types looked up in the solution on demand', () => {
   it('keeps the type a call was built with and resolves it by lookup', () => {
     const a = typecheck(
-      fromOpen('i').eval('r', () => add(param('a', 'integer'), param('b', 'long'))).ast
+      from('i').eval('r', () => add(param('a', 'integer'), param('b', 'long'))).ast
     );
     const expr = firstExpr(a);
     // the Core holds a meta for the result of `add`, and nothing rewrote it
@@ -40,7 +40,7 @@ describe('the Core, with types looked up in the solution on demand', () => {
 
   it('records which instance each placeholder is', () => {
     const a = typecheck(
-      fromOpen('i').eval('r', () => add(param('a', 'date'), param('b', 'date_period'))).ast
+      from('i').eval('r', () => add(param('a', 'date'), param('b', 'date_period'))).ast
     );
     const expr = firstExpr(a);
     expect(expr.tag === 'call' ? expr.instances : []).toHaveLength(1);
@@ -48,7 +48,7 @@ describe('the Core, with types looked up in the solution on demand', () => {
   });
 
   it('gives the same Core with or without a schema, and the lookup says what differs', () => {
-    const q = fromOpen('i').where((c) => gt(c.a, lit.long(1)));
+    const q = from('i').where((c) => gt(c.a, lit.long(1)));
     const open = typecheck(q.ast);
     const closed = typecheck(q.ast, { schema: { a: 'integer' } });
     expect(open.core).toEqual(closed.core);
@@ -69,7 +69,7 @@ describe('the Core, with types looked up in the solution on demand', () => {
   });
 
   it('resolves an aggregate over a declared column', () => {
-    const a = typecheck(fromOpen('i').stats((c) => ({ total: sum(typed('integer', c.a)) })).ast);
+    const a = typecheck(from('i').stats((c) => ({ total: sum(typed('integer', c.a)) })).ast);
     const cmd = a.core.pipe[0];
     expect(cmd.tag === 'stats' ? resolve(a.solution, cmd.aggs[0].expr.type) : undefined).toEqual({
       tag: 'esql',

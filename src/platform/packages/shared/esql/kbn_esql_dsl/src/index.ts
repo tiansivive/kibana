@@ -9,6 +9,7 @@
 
 export type { Expr, AnyExpr } from './dsl/expr';
 export { lit, param } from './dsl/expr';
+export type { ExprType, Inferred } from './dsl/inferred';
 export type { Operand, Scalarish } from './dsl/kinds';
 export type { ExprNode } from './surface/expr';
 export type { EsqlType } from './vocabulary/esql_type';
@@ -39,17 +40,5 @@ export { resolve } from './elaboration/solve/solution';
 export type { Diagnostic, DiagnosticCode } from './diagnostics/diagnostic';
 export type { Origin } from './diagnostics/origin';
 export type { CommandNode, QueryAst, SortSpec } from './surface/query';
-export type { Cols, OpenSchema, Q, SortKey, Stage } from './dsl/query';
-export {
-  asc,
-  desc,
-  drop,
-  evalAs,
-  from,
-  fromOpen,
-  keep,
-  limit,
-  sort,
-  stats,
-  where,
-} from './dsl/query';
+export type { Cols, Dropped, OpenSchema, Q, SortKey, Stage } from './dsl/query';
+export { asc, desc, drop, evalAs, from, keep, limit, sort, stats, where } from './dsl/query';

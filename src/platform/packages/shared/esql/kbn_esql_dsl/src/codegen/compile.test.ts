@@ -19,7 +19,6 @@ import {
   desc,
   eq,
   from,
-  fromOpen,
   gt,
   lit,
   max,
@@ -140,16 +139,16 @@ describe('compile: expressions', () => {
   });
 
   it('prints parameters by name and a declaration as the expression it declares', () => {
-    expect(printed(fromOpen('i').where((c) => gt(c.a, param('since', 'long'))).ast)).toBe(
+    expect(printed(from('i').where((c) => gt(c.a, param('since', 'long'))).ast)).toBe(
       'FROM i | WHERE a > ?since'
     );
-    expect(printed(fromOpen('i').where((c) => gt(typed('long', c.a), lit.long(1))).ast)).toBe(
+    expect(printed(from('i').where((c) => gt(typed('long', c.a), lit.long(1))).ast)).toBe(
       'FROM i | WHERE a > 1::LONG'
     );
   });
 
   it('quotes names that are not plain identifiers', () => {
-    expect(printed(fromOpen('i').keep('host name', '1abc', '@timestamp').ast)).toBe(
+    expect(printed(from('i').keep('host name', '1abc', '@timestamp').ast)).toBe(
       'FROM i | KEEP `host name`, `1abc`, @timestamp'
     );
   });

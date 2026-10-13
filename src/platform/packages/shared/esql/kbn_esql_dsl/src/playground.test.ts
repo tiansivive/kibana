@@ -24,7 +24,6 @@ import {
   desc,
   eq,
   from,
-  fromOpen,
   gt,
   lit,
   max,
@@ -76,7 +75,7 @@ const examples: readonly Example[] = [
   {
     title:
       'The same idea with no schema: the types of the columns are inferred from how they are used',
-    ast: fromOpen('logs-*')
+    ast: from('logs-*')
       .where((c) => gt(c.bytes, lit.long(1024)))
       .stats((c) => ({ total: sum(c.bytes), mean: avg(c.risk) })).ast,
   },
@@ -89,12 +88,12 @@ const examples: readonly Example[] = [
   },
   {
     title: 'A mistake with a schema: summing a keyword column',
-    ast: fromOpen('logs-*').stats((c) => ({ total: sum(c['host.name']) })).ast,
+    ast: from('logs-*').stats((c) => ({ total: sum(c['host.name']) })).ast,
     options: { schema },
   },
   {
     title: 'The same mistake with no schema: not an error yet, only guidance',
-    ast: fromOpen('logs-*')
+    ast: from('logs-*')
       .where((c) => eq(c.host, lit.str('a')))
       .stats((c) => ({ total: sum(c.host) })).ast,
   },

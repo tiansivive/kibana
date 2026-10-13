@@ -12,8 +12,24 @@
  * and an `@ts-expect-error` that no longer fires is TS2578.
  */
 
-import type { Cols, Q, Stage } from '../..';
-import { abs, add, and, avg, count, eq, from, gt, lit, max, round, sum, top, where } from '../..';
+import type { Cols, Inferred, OpenSchema, Q, Stage } from '../..';
+import {
+  abs,
+  add,
+  and,
+  avg,
+  count,
+  eq,
+  from,
+  gt,
+  lit,
+  max,
+  round,
+  sum,
+  top,
+  typed,
+  where,
+} from '../..';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
   ? true
@@ -152,3 +168,42 @@ assertType<Equal<typeof viaWhere, Q<Doc>>>();
 
 // @ts-expect-error the schema has no `@timestamp`, so the generic stage does not apply
 from<{ bytes: 'long' }>('x').pipe(since('2024-01-01'));
+
+// --- open sources: no schema, so columns are Inferred ------------------------------------------
+
+// Without a type argument `from` is open: any column can be read and its type is Inferred.
+const open = from('logs-*');
+assertType<Equal<typeof open, Q<OpenSchema>>>();
+
+open.where((c) => gt(c.bytes, lit.long(1)));
+
+// A result computed from an Inferred column is Inferred.
+const computed = open.eval('x', (c) => add(c.a, lit.int(1)));
+assertType<Equal<SchemaOf<typeof computed>['x'], Inferred>>();
+
+// `typed` declares the type of an open column, and only an open column.
+const declared = open.eval('n', (c) => typed('long', c.a));
+assertType<Equal<SchemaOf<typeof declared>['n'], 'long'>>();
+
+// @ts-expect-error `bytes` is declared, so it is not Inferred and needs no declaration
+logs().eval('x', (c) => typed('long', c.bytes));
+
+// KEEP closes an open row to the columns it names.
+// @ts-expect-error `b` was not kept
+open.keep('a').keep('b');
+
+// --- open sources: dropped columns -------------------------------------------------------------
+
+open
+  .drop('x')
+  // @ts-expect-error `x` was dropped, so reading it is an error
+  .where((c) => gt(c.x, lit.long(1)));
+
+// Other columns of an open row stay readable after a DROP.
+open.drop('x').where((c) => gt(c.y, lit.long(1)));
+
+// EVAL puts a dropped column back.
+open
+  .drop('x')
+  .eval('x', () => lit.long(1))
+  .where((c) => gt(c.x, lit.long(2)));
