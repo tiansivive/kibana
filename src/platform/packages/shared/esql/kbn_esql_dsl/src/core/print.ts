@@ -12,6 +12,7 @@ import type { KindSignature } from '../kind';
 import { resolve } from '../elaboration/solve/solution';
 import type { Solution } from '../elaboration/solve/solution';
 import type { Principal } from '../elaboration/solve/principal';
+import { instancesOf, instancesWith } from './polymorphism/library';
 import type { Library, LibraryFunction } from './polymorphism/library';
 import type { Core, CoreCommand, CoreExpr } from './terms';
 import type { Meta, Mono, Poly, Requires, Type } from './type';
@@ -33,8 +34,10 @@ export interface Names {
 }
 
 export interface FnOptions extends Names {
-  /** Shows the kind signature on a second line. On unless it is set to `false`. */
+  /** Shows the kind signature under the type. On unless it is set to `false`. */
   readonly kinds?: boolean;
+  /** Shows the dependency of each protocol the type requires that has one. On unless `false`. */
+  readonly dependencies?: boolean;
 }
 
 /**
@@ -57,12 +60,18 @@ export const ty = (type: Type, names: Names = {}): string =>
 
 export const esqlType = (type: EsqlType): string => `ES.${type}`;
 
-/** Shows a library function: its type, and under it the kind signature that says where it may be used. */
-export const fn = (f: LibraryFunction, options: FnOptions = {}): string => {
-  const { kinds = true, ...names } = options;
+/**
+ * Shows a library function: its type, under it the kind signature that says where it may be used,
+ * and a `where` line for each protocol it requires that has a dependency, since the type alone
+ * does not say which arguments determine which.
+ */
+export const fn = (library: Library, f: LibraryFunction, options: FnOptions = {}): string => {
+  const { kinds = true, dependencies = true, ...names } = options;
+  const indent = ' '.repeat(f.name.length);
   return [
     `${f.name} :: ${ty(f.type, names)}`,
-    ...(kinds ? [`${' '.repeat(f.name.length)} :: ${kindSignature(f.kinds)}`] : []),
+    ...(kinds ? [`${indent} :: ${kindSignature(f.kinds)}`] : []),
+    ...(dependencies ? requiredDependencies(library, f.type.requires, names, indent) : []),
   ].join('\n');
 };
 
@@ -76,8 +85,15 @@ export const context = (requires: readonly Requires[], names: Names = {}): strin
     : '';
 };
 
-/** Shows a principal type, naming the unknown types `a`, `b`, `c` in order of appearance. */
-export const principal = (p: Principal): string => {
+/**
+ * Shows a principal type, naming the unknown types `a`, `b`, `c` in order of appearance, with a
+ * `where` line for each protocol it requires that has a dependency unless `dependencies` is false.
+ */
+export const principal = (
+  library: Library,
+  p: Principal,
+  options: { readonly dependencies?: boolean } = {}
+): string => {
   const metas = distinctMetas([
     ...p.input.columns.values(),
     ...p.output.columns.values(),
@@ -92,11 +108,47 @@ export const principal = (p: Principal): string => {
     return fields.length > 0 ? `{ ${fields.join(', ')} }` : '{}';
   };
   return [
-    metas.length > 0 ? `forall ${metas.map((_, i) => variableName(i)).join(' ')}. ` : '',
-    context(p.requires, names),
-    `${row(p.input.columns, p.input.open)} -> ${row(p.output.columns, p.output.open)}`,
-  ].join('');
+    [
+      metas.length > 0 ? `forall ${metas.map((_, i) => variableName(i)).join(' ')}. ` : '',
+      context(p.requires, names),
+      `${row(p.input.columns, p.input.open)} -> ${row(p.output.columns, p.output.open)}`,
+    ].join(''),
+    ...(options.dependencies === false
+      ? []
+      : requiredDependencies(library, p.requires, names, ' ')),
+  ].join('\n');
 };
+
+/**
+ * A protocol with its dependency and its instances, written the way the dependency reads: the
+ * determining types, then `->`, then the types they determine. With `containing`, only the
+ * instances that mention that type.
+ */
+export const protocol = (
+  library: Library,
+  name: string,
+  options: { readonly containing?: EsqlType } = {}
+): string => {
+  const declared = library.protocols.get(name);
+  const rows = instancesOf(library, name).filter(
+    (instance) => options.containing === undefined || instance.includes(options.containing)
+  );
+  const variables = Array.from({ length: declared?.arity ?? 0 }, (_, i) => variableName(i));
+  const dependency = declared?.determinedBy
+    ? ` | ${dependencyOf(variables, declared.determinedBy)}`
+    : '';
+  const shown = rows.map((instance) => instanceRow(instance, declared?.determinedBy));
+  return [
+    `protocol ${[name, ...variables].join(' ')}${dependency}`,
+    ...(declared?.arity === 1 ? [`  ${shown.join(', ')}`] : shown.map((row) => `  ${row}`)),
+  ].join('\n');
+};
+
+/** What a type supports: every protocol it takes part in, with the instances that mention it. */
+export const protocolsOf = (library: Library, type: EsqlType): string =>
+  instancesWith(library, type)
+    .map(({ protocol: p }) => protocol(library, p.name, { containing: type }))
+    .join('\n\n');
 
 const mono = (type: Mono, names: Names): string =>
   type.tag === 'esql'
@@ -114,6 +166,38 @@ const poly = (type: Poly, names: Names): string => {
     context(type.requires, names),
     `${parameters(type.params.map((p) => mono(p, names)))} -> ${mono(type.result, names)}`,
   ].join('');
+};
+
+const requiredDependencies = (
+  library: Library,
+  requires: readonly Requires[],
+  names: Names,
+  indent: string
+): string[] =>
+  requires
+    .flatMap((r) => {
+      const determinedBy = library.protocols.get(r.protocol)?.determinedBy;
+      const args = r.args.map((a) => mono(a, names));
+      return determinedBy
+        ? [`${[r.protocol, ...args].join(' ')} | ${dependencyOf(args, determinedBy)}`]
+        : [];
+    })
+    .map((line, i) => `${indent} ${i === 0 ? 'where' : '     '} ${line}`);
+
+const dependencyOf = (names: readonly string[], determinedBy: readonly number[]): string =>
+  `${determinedBy.map((i) => names[i]).join(' ')} -> ${names
+    .filter((_, i) => !determinedBy.includes(i))
+    .join(' ')}`;
+
+const instanceRow = (instance: readonly EsqlType[], determinedBy?: readonly number[]): string => {
+  const shown = (types: readonly EsqlType[]) => parameters(types.map(esqlType));
+  return determinedBy
+    ? `${shown(instance.filter((_, i) => determinedBy.includes(i)))} -> ${shown(
+        instance.filter((_, i) => !determinedBy.includes(i))
+      )}`
+    : instance.length === 1
+    ? esqlType(instance[0])
+    : shown(instance);
 };
 
 const kindSignature = (kinds: KindSignature): string =>

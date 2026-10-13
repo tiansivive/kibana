@@ -129,7 +129,7 @@ const describeExample = ({ title, ast, options }: Example): string => {
         }${types.length === 0 ? '  (nothing satisfies every use)' : ''}`
     ),
     '',
-    `principal type: ${Print.principal(analysis.principal)}`,
+    `principal type: ${Print.principal(standardLibrary, analysis.principal)}`,
     '',
     'elaborated Core:',
     Print.core(analysis.core, analysis.solution, { library: standardLibrary, explain }),

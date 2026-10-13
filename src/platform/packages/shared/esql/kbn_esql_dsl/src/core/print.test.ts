@@ -74,16 +74,65 @@ describe('Print.ty', () => {
 
   it('shows the kind signature under the type, unless it is turned off', () => {
     const top = standardLibrary.functions.get('top');
-    const addition = standardLibrary.functions.get('add');
-    expect(top && Print.fn(top)).toBe(
+    expect(top && Print.fn(standardLibrary, top, { dependencies: false })).toBe(
       [
         'top :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b',
         '    :: (scalar, const, const) -> agg',
       ].join('\n')
     );
-    expect(addition && Print.fn(addition)).toContain('\n    :: (k, k) -> k');
-    expect(addition && Print.fn(addition, { kinds: false })).toBe(
-      'add :: forall a b c. Arith a b c => (a, b) -> c'
+    const addition = standardLibrary.functions.get('add');
+    expect(addition && Print.fn(standardLibrary, addition, { kinds: false })).toBe(
+      ['add :: forall a b c. Arith a b c => (a, b) -> c', '    where Arith a b c | a b -> c'].join(
+        '\n'
+      )
     );
+  });
+
+  it('shows the dependency of every required protocol that has one, by default', () => {
+    const summation = standardLibrary.functions.get('sum');
+    expect(summation && Print.fn(standardLibrary, summation)).toBe(
+      [
+        'sum :: forall a b. (SignedNumeric a, Wide a b) => a -> b',
+        '    :: scalar -> agg',
+        '    where Wide a b | a -> b',
+      ].join('\n')
+    );
+    const abs = standardLibrary.functions.get('abs');
+    expect(abs && Print.fn(standardLibrary, abs, { kinds: false })).toBe(
+      'abs :: forall a. Numeric a => a -> a'
+    );
+  });
+});
+
+describe('Print.protocol', () => {
+  it('writes a protocol with a dependency the way the dependency reads', () => {
+    const text = Print.protocol(standardLibrary, 'Arith');
+    expect(text.split('\n')[0]).toBe('protocol Arith a b c | a b -> c');
+    expect(text).toContain('  (ES.integer, ES.long) -> ES.long');
+    expect(text).toContain('  (ES.date, ES.date_period) -> ES.date');
+  });
+
+  it('writes a unary protocol as one line of types, and a relation as pairs', () => {
+    expect(Print.protocol(standardLibrary, 'Orderable').split('\n')).toEqual([
+      'protocol Orderable a',
+      expect.stringContaining('ES.keyword'),
+    ]);
+    expect(Print.protocol(standardLibrary, 'Norm')).toContain('  ES.text -> ES.keyword');
+    expect(Print.protocol(standardLibrary, 'Comparable')).toContain('  (ES.long, ES.long)');
+  });
+
+  it('lists only the instances that mention a type', () => {
+    const text = Print.protocol(standardLibrary, 'Arith', { containing: 'date' });
+    expect(text).toContain('(ES.date, ES.date_period) -> ES.date');
+    expect(text).not.toContain('(ES.integer, ES.integer)');
+  });
+});
+
+describe('Print.protocolsOf', () => {
+  it('shows every protocol a type takes part in', () => {
+    const text = Print.protocolsOf(standardLibrary, 'keyword');
+    expect(text).toContain('protocol Orderable a');
+    expect(text).toContain('protocol Norm a b | a -> b');
+    expect(text).not.toContain('protocol Numeric');
   });
 });

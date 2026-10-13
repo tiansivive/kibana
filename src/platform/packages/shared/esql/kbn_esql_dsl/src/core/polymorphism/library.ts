@@ -74,6 +74,18 @@ export const makeLibrary = (
 export const instancesOf = (library: Library, protocol: string): readonly (readonly EsqlType[])[] =>
   library.instances.get(protocol) ?? [];
 
+/** The protocols a type takes part in, each with the instances that mention it. */
+export const instancesWith = (
+  library: Library,
+  type: EsqlType
+): readonly { protocol: Protocol; instances: readonly (readonly EsqlType[])[] }[] =>
+  [...library.protocols.values()]
+    .map((protocol) => ({
+      protocol,
+      instances: instancesOf(library, protocol.name).filter((instance) => instance.includes(type)),
+    }))
+    .filter(({ instances }) => instances.length > 0);
+
 /**
  * Instances of a protocol that violate its declared dependency: two instances that agree on the
  * determining positions and differ elsewhere.
