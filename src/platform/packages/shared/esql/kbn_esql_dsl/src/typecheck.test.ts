@@ -69,7 +69,7 @@ describe('typecheck: inferring column types from usage', () => {
       .stats((c) => ({ total: sum(c.host) }));
     const a = typecheck(q.ast, { schema: { host: 'keyword' } });
     expect(codes(a)).toEqual(['no_instance']);
-    expect(a.diagnostics[0].origin.path).toBe('pipe[1].stats.aggs.total');
+    expect(a.diagnostics[0].location.path).toBe('pipe[1].stats.aggs.total');
   });
 
   it('does not depend on the order independent constraints are applied in', () => {

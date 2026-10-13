@@ -8,6 +8,6 @@
  */
 
 /** Where a constraint came from: a path into the query AST such as `pipe[1].stats.aggs.total.args[0]`. */
-export interface Origin {
+export interface Location {
   readonly path: string;
 }

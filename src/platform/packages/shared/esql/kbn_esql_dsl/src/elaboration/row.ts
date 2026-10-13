@@ -7,13 +7,13 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import { diagnostic } from '../diagnostics/diagnostic';
-import type { Origin } from '../diagnostics/origin';
+import type { Location } from '../diagnostics/location';
 import type { EsqlType } from '../vocabulary/esql_type';
 import { withEntry, withoutKey } from '../utils/immutable';
 import { esqlType, metaType, sourceMeta } from '../core/type';
 import type { Mono } from '../core/type';
-import { constrain, equal, none, report, wanted } from './solve/constraints';
+import * as Locate from './locate';
+import { constrain, equal, none, problem, wanted } from './solve/constraints';
 import type { Emit } from './solve/constraints';
 
 /**
@@ -42,12 +42,7 @@ export const schemaRow = (
   },
   emit: constrain(
     ...Object.entries(schema).map(([name, ty]) =>
-      equal(
-        metaType(sourceMeta(name)),
-        esqlType(ty),
-        { path: `schema.${name}` },
-        'the schema declares'
-      )
+      equal(metaType(sourceMeta(name)), esqlType(ty), Locate.schema(name), 'the schema declares')
     )
   ),
 });
@@ -58,7 +53,7 @@ export interface Demanded {
 }
 
 /** Looks a column up. A name only the source can supply becomes a requirement on the source. */
-export const demand = (row: Row, name: string, origin: Origin): Demanded => {
+export const demand = (row: Row, name: string, location: Location): Demanded => {
   const local = row.fields.get(name);
   if (local !== undefined) {
     return { type: local, emit: none };
@@ -67,18 +62,18 @@ export const demand = (row: Row, name: string, origin: Origin): Demanded => {
     return row.tail.lacks.has(name)
       ? failed(
           name,
-          origin,
-          report(diagnostic('dropped_column', `column ${name} was dropped earlier`, origin))
+          location,
+          problem('dropped_column', `column ${name} was dropped earlier`, location)
         )
       : {
           type: metaType(sourceMeta(name)),
           emit: {
             ...constrain(
               wanted(
-                `${origin.path}#field.${name}`,
+                Locate.fieldType(location, name),
                 'FieldType',
                 [metaType(sourceMeta(name))],
-                origin
+                location
               )
             ),
             sources: [name],
@@ -88,20 +83,18 @@ export const demand = (row: Row, name: string, origin: Origin): Demanded => {
   const available = [...row.fields.keys()];
   return failed(
     name,
-    origin,
-    report(
-      diagnostic(
-        'unknown_column',
-        `unknown column ${name}; available: ${available.length ? available.join(', ') : '(none)'}`,
-        origin
-      )
+    location,
+    problem(
+      'unknown_column',
+      `unknown column ${name}; available: ${available.length ? available.join(', ') : '(none)'}`,
+      location
     )
   );
 };
 
 /** A column that could not be read gets a type nothing constrains, so nothing built on it reports again. */
-const failed = (name: string, origin: Origin, emit: Emit): Demanded => ({
-  type: metaType(`${origin.path}!${name}`),
+const failed = (name: string, location: Location, emit: Emit): Demanded => ({
+  type: metaType(Locate.untyped(location, name)),
   emit,
 });
 

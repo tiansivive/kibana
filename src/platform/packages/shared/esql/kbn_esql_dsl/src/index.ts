@@ -38,7 +38,7 @@ export type { Principal } from './elaboration/solve/principal';
 export type { Solution } from './elaboration/solve/solution';
 export { resolve } from './elaboration/solve/solution';
 export type { Diagnostic, DiagnosticCode } from './diagnostics/diagnostic';
-export type { Origin } from './diagnostics/origin';
+export type { Location } from './diagnostics/location';
 export type { CommandNode, QueryAst, SortSpec } from './surface/query';
 export type { Cols, Dropped, OpenSchema, Q, SortKey, Stage } from './dsl/query';
 export { asc, desc, drop, evalAs, from, keep, limit, sort, stats, where } from './dsl/query';

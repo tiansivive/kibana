@@ -12,14 +12,14 @@ import { standardLibrary } from '../core/polymorphism/standard/standard';
 import type { Kind } from '../vocabulary/kind';
 import { callKind } from './kinds';
 
-const origin = { path: 'call' };
+const location = { path: 'call' };
 
 const call = (name: string, ...kinds: Kind[]) => {
   const fn = standardLibrary.functions.get(name);
   if (!fn) {
     throw new Error(`no function ${name}`);
   }
-  const { kind, emit } = callKind(fn, kinds, origin);
+  const { kind, emit } = callKind(fn, kinds, location);
   return { kind, codes: emit.diagnostics.map((d) => d.code) };
 };
 

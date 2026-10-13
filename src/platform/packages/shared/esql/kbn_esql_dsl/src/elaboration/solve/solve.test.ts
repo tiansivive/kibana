@@ -19,13 +19,13 @@ import type { Constraint } from './constraints';
 import { resolve } from './solution';
 import { solve } from './solve';
 
-const origin = (path: string) => ({ path });
+const location = (path: string) => ({ path });
 const meta = (name: string) => metaType(name);
 const ty = (t: EsqlType) => esqlType(t);
 const same = (found: Mono, expected: Mono, path = 'e') =>
-  equal(found, expected, origin(path), 'needs');
+  equal(found, expected, location(path), 'needs');
 const want = (hole: string, protocol: string, ...args: Mono[]) =>
-  wanted(hole, protocol, args, origin(hole));
+  wanted(hole, protocol, args, location(hole));
 
 const library = makeLibrary(
   [

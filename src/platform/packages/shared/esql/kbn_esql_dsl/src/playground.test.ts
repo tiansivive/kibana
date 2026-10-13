@@ -113,9 +113,10 @@ const describeExample = ({ title, ast, options }: Example): string => {
     '',
     analysis.ok
       ? 'checks: ok'
-      : ['problems:', ...analysis.diagnostics.map((d) => `  ${d.origin.path}: ${d.message}`)].join(
-          '\n'
-        ),
+      : [
+          'problems:',
+          ...analysis.diagnostics.map((d) => `  ${d.location.path}: ${d.message}`),
+        ].join('\n'),
     '',
     'columns read:',
     ...(analysis.required.size === 0 ? ['  none that the checker had to infer'] : []),

@@ -21,7 +21,7 @@ import { unify } from './unify';
 export const solve = (library: Library, constraints: readonly Constraint[]): Solution => {
   const unified = constraints
     .filter(isEqual)
-    .reduce<Solution>((s, c) => unify(s, c.found, c.expected, c.origin, c.note), {
+    .reduce<Solution>((s, c) => unify(s, c.found, c.expected, c.location, c.note), {
       links: new Map(),
       instances: new Map(),
       residual: [],
