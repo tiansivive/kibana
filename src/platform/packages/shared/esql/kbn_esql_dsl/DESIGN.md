@@ -40,6 +40,17 @@ The type of a column says what it holds. Its **kind** says where an expression m
 
 A call over a `scalar` and an `agg` operand has no kind and is rejected. Aggregate arguments must be `const` or `scalar`.
 
+Kinds are not part of the type system. Every expression's kind is known from its parts, so nothing is inferred or unified: `elaboration/kinds.ts` applies each function's **kind signature** to the kinds of its arguments. A kind signature sits beside the type signature and says how each parameter is used and what the call is:
+
+```
+top   :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b
+      :: (scalar, const, const) -> agg
+add   :: forall a b c. Arith a b c => (a, b) -> c
+      :: (k, k) -> k
+```
+
+A parameter is `const` (must be a constant), `scalar` (a per-row or constant value, never an aggregate) or `k` (any kind). The result is `agg`, `grouping`, or `k`, the join of the arguments passed to the `k` parameters, where mixing `scalar` with `agg` is rejected. An aggregate function is `(scalar, ...) -> agg`, a scalar function is `(k, ...) -> k`. The kind of an expression indexes a value, not its type, so the alternative of indexing every type by kind (`Expr k t`, as the TypeScript layer does) was not taken: scalar functions would need a partial join over kinds inside unification, for kinds that are never unknown.
+
 ## Protocols, instances and function types
 
 A **protocol** is a named predicate over types, declared once and shared by any number of functions. It states a fact about types that holds whether or not any function uses it ("`long` is numeric", "`integer` and `long` widen to `long`"), never what one function accepts. An **instance** is one ground fact that a tuple of types satisfies a protocol, declared separately from the protocol and from every function. A protocol owns no functions and no implementations, because ES executes the functions. Protocols and instances are internal to the library: users cannot declare them, and they play no part in codegen.
@@ -59,9 +70,8 @@ interface Protocol { name: string; arity: number; determinedBy?: readonly number
 interface Instance { protocol: string; types: readonly EsqlType[] }
 interface LibraryFunction {
   name: string;
-  kind: 'scalar' | 'agg' | 'grouping';                 // how it may be used, not part of the type
-  constParams: readonly number[];                      // parameters ES|QL requires to be constants
   type: Poly;
+  kinds: { params: readonly ('const' | 'scalar' | 'k')[]; result: 'agg' | 'grouping' | 'k' };
 }
 ```
 
@@ -74,7 +84,7 @@ add   :: forall a b c. Arith a b c => (a, b) -> c
 count :: forall a. a -> ES.long                       -- needs no protocol
 ```
 
-The parameters are a list, written `(a, b) -> c`, because functions are applied to all their arguments at once and never partially. `kind` and `constParams` are not in the type, and `Print.fn` shows them beside it, as in `top :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b  -- agg; constant parameters 1, 2`.
+The parameters are a list, written `(a, b) -> c`, because functions are applied to all their arguments at once and never partially. The kind signature is not part of the type, and `Print.fn` shows it on a second line unless `kinds: false` is given.
 
 The variety in ES|QL's accepted types is carried by instances, never by several types per function. `add` accepts numbers and also a time value with a time quantity, and `Arith` holds the instances of both. Given the first type, the instances restrict the second and determine the result.
 
@@ -218,6 +228,7 @@ src/
     polymorphism/             protocol.ts, library.ts, standard/ (tables, protocols, instances, functions)
   elaboration/
     bidir.ts, row.ts          AST to Core, and the open or closed column row
+    kinds.ts                  applies kind signatures to argument kinds
     solve/                    constraints, unify, decide, solve, solution, guidance
   diagnostics/                origin.ts, diagnostic.ts
   codegen/compile.ts          Core to ES|QL
@@ -238,7 +249,7 @@ Implemented:
 - `compile`, which turns the Core into an `@elastic/esql` query for every command and expression the library has, and the printer.
 - `typecheck` reports the principal type (`Typechecked.principal`) and `Print.principal` shows it, for example `forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }`. `Print.ty` in `core/print.ts`, imported as `import * as Print`, shows every type the same way: ES|QL types with an `ES.` prefix (`ES.keyword`) so they are never mistaken for variables, variables by name, and a function's type as `forall a b. (SignedNumeric a, Wide a b) => a -> b`, with several parameters as `(a, b) -> c`. Diagnostics, `Print.core`, `Print.principal` and the playground all use it. Unknown column types are variables, `P` is the undecided protocol facts with `FieldType` on source columns left out and repeats dropped, and a closed schema leaves no variables. Variables that belong to neither row, such as the result of an inner `add`, stay in `P`. Guidance per column is the projection of `P` onto one variable.
 - A playground, `src/playground.test.ts`: a list of example queries, each printed as the ES|QL it compiles to, whether it checks, the guidance for unknown columns, the principal type and the elaborated Core.
-- A REPL, `repl.js`, run from the repository root with `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js`: the package exports are in scope, and `show(query, { schema? })` prints what the playground prints for one query. `:t name` shows a function's type, and `:t` alone lists them all.
+- A REPL, `repl.js`, run from the repository root with `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js`: the package exports are in scope, and `show(query, { schema? })` prints what the playground prints for one query. `:t name` shows a function's type, `:t` alone lists them all, and `:toggle kinds` shows or hides each function's kind signature, which starts hidden.
 
 Not yet implemented:
 

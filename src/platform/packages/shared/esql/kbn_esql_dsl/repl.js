@@ -10,7 +10,8 @@
 /**
  * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js` from the
  * repository root. Every export of the package is in scope, plus `show(query, { schema? })`.
- * `:t name` shows a function's type, and `:t` alone lists them all.
+ * `:t name` shows a function's type, and `:t` alone lists them all. `:toggle kinds` shows or hides
+ * the kind signature of each function, hidden to start with.
  */
 
 require('@kbn/setup-node-env');
@@ -46,9 +47,11 @@ const show = (q, options) => {
 // The DSL helpers `gt` and `eq` are the library's `greater_than` and `equals`.
 const aliases = { gt: 'greater_than', eq: 'equals' };
 
+const settings = { kinds: false };
+
 const typeOfFunction = (name) => {
   const fn = standardLibrary.functions.get(aliases[name] ?? name);
-  return fn ? dsl.Print.fn(fn) : undefined;
+  return fn ? dsl.Print.fn(fn, { kinds: settings.kinds }) : undefined;
 };
 
 const lookup = (name) =>
@@ -63,11 +66,24 @@ const server = require('repl').start({
 });
 Object.assign(server.context, dsl, { show });
 
+const toggle = (name) => {
+  if (name in settings) {
+    settings[name] = !settings[name];
+  }
+  return name in settings
+    ? `${name}: ${settings[name] ? 'on' : 'off'}`
+    : `settings: ${Object.keys(settings).join(', ')}`;
+};
+
 const evaluate = server.eval;
 server.eval = (input, context, file, done) => {
-  const command = /^\s*:t\b\s*(\S*)\s*$/.exec(input);
-  if (command) {
-    console.log(lookup(command[1]));
+  const type = /^\s*:t\b\s*(\S*)\s*$/.exec(input);
+  const setting = /^\s*:toggle\b\s*(\S*)\s*$/.exec(input);
+  if (type) {
+    console.log(lookup(type[1]));
+    done(null);
+  } else if (setting) {
+    console.log(toggle(setting[1]));
     done(null);
   } else {
     evaluate.call(server, input, context, file, done);

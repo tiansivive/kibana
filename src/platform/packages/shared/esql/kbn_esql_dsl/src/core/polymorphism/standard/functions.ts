@@ -7,6 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
+import type { KindSignature, ParamKind } from '../../../kind';
 import { esqlType, varType } from '../../type';
 import type { Mono, Requires } from '../../type';
 import type { LibraryFunction } from '../library';
@@ -33,36 +34,38 @@ const requires = (protocol: string, ...args: readonly Mono[]): Requires => ({ pr
 
 const fn = (
   name: string,
-  kind: LibraryFunction['kind'],
   params: readonly Mono[],
   result: Mono,
-  required: readonly Requires[] = [],
-  constParams: readonly number[] = []
+  required: readonly Requires[],
+  kinds: KindSignature
 ): LibraryFunction => ({
   name,
-  kind,
-  constParams,
   type: { tag: 'poly', requires: required, params, result },
+  kinds,
 });
 
+/** A scalar function takes any kind and is as aggregate as its arguments are. */
+const scalar = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'k' });
+
+const aggregate = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'agg' });
+
 export const functions: readonly LibraryFunction[] = [
-  fn('abs', 'scalar', [a], a, [requires('Numeric', a)]),
-  fn('round', 'scalar', [a], a, [requires('Numeric', a)]),
-  fn('add', 'scalar', [a, b], c, [requires('Arith', a, b, c)]),
-  fn('greater_than', 'scalar', [a, b], boolean, [requires('Comparable', a, b)]),
-  fn('equals', 'scalar', [a, b], boolean, [requires('Equatable', a, b)]),
-  fn('and', 'scalar', [boolean, boolean], boolean),
-  fn('or', 'scalar', [boolean, boolean], boolean),
-  fn('avg', 'agg', [a], double, [requires('SignedNumeric', a)]),
-  fn('sum', 'agg', [a], b, [requires('SignedNumeric', a), requires('Wide', a, b)]),
-  fn('max', 'agg', [a], b, [requires('Orderable', a), requires('Norm', a, b)]),
-  fn('count', 'agg', [a], long),
+  fn('abs', [a], a, [requires('Numeric', a)], scalar('k')),
+  fn('round', [a], a, [requires('Numeric', a)], scalar('k')),
+  fn('add', [a, b], c, [requires('Arith', a, b, c)], scalar('k', 'k')),
+  fn('greater_than', [a, b], boolean, [requires('Comparable', a, b)], scalar('k', 'k')),
+  fn('equals', [a, b], boolean, [requires('Equatable', a, b)], scalar('k', 'k')),
+  fn('and', [boolean, boolean], boolean, [], scalar('k', 'k')),
+  fn('or', [boolean, boolean], boolean, [], scalar('k', 'k')),
+  fn('avg', [a], double, [requires('SignedNumeric', a)], aggregate('scalar')),
+  fn('sum', [a], b, [requires('SignedNumeric', a), requires('Wide', a, b)], aggregate('scalar')),
+  fn('max', [a], b, [requires('Orderable', a), requires('Norm', a, b)], aggregate('scalar')),
+  fn('count', [a], long, [], aggregate('scalar')),
   fn(
     'top',
-    'agg',
     [a, integer, keyword],
     b,
     [requires('Orderable', a), requires('Norm', a, b)],
-    [1, 2]
+    aggregate('scalar', 'const', 'const')
   ),
 ];

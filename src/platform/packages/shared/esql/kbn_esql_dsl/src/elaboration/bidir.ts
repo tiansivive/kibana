@@ -10,7 +10,7 @@
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
 import { esqlType, metaType } from '../core/type';
 import type { Hole, Mono } from '../core/type';
-import type { Library, LibraryFunction } from '../core/polymorphism/library';
+import type { Library } from '../core/polymorphism/library';
 import { diagnostic } from '../diagnostics/diagnostic';
 import type { Origin } from '../diagnostics/origin';
 import type { EsqlType } from '../esql_type';
@@ -18,6 +18,7 @@ import { withEntry } from '../immutable';
 import type { Kind } from '../kind';
 import type { ExprNode } from '../surface/expr';
 import type { CommandNode, QueryAst } from '../surface/query';
+import { callKind, expectAggregate, expectScalar, rejectAggregateKey } from './kinds';
 import { closedRow, define, demand, drop, openRow, schemaRow } from './row';
 import type { Row } from './row';
 import { constrain, equal, merge, none, report, wanted } from './solve/constraints';
@@ -86,28 +87,8 @@ const step = (library: Library, row: Row, cmd: CommandNode, index: number): Step
         value: synth(library, row, b.expr, `${base}.by.${b.name}`),
       }));
       const checks = [
-        ...aggs
-          .filter((a) => a.value.kind !== 'agg')
-          .map((a) =>
-            report(
-              diagnostic(
-                'not_aggregate',
-                `${a.name} must be an aggregate function in STATS`,
-                at(`${base}.aggs.${a.name}`)
-              )
-            )
-          ),
-        ...keys
-          .filter((k) => k.value.kind === 'agg')
-          .map((k) =>
-            report(
-              diagnostic(
-                'invalid_grouping',
-                `${k.name} cannot group by an aggregate`,
-                at(`${base}.by.${k.name}`)
-              )
-            )
-          ),
+        ...aggs.map((a) => expectAggregate(a.value.kind, a.name, at(`${base}.aggs.${a.name}`))),
+        ...keys.map((k) => rejectAggregateKey(k.value.kind, k.name, at(`${base}.by.${k.name}`))),
       ];
       return {
         row: closedRow(
@@ -191,7 +172,7 @@ const perRow = (
   const value = expected
     ? check(library, row, node, expected, path, `${command} needs`)
     : synth(library, row, node, path);
-  return { ...value, emit: merge(value.emit, expectScalar(value, command, at(path))) };
+  return { ...value, emit: merge(value.emit, expectScalar(value.kind, command, at(path))) };
 };
 
 /** Elaborates an expression against the type its context expects. */
@@ -314,52 +295,5 @@ const instantiate =
   (path: string) =>
   (term: Mono): Mono =>
     term.tag === 'var' ? metaType(`${path}$${term.name}`) : term;
-
-/** Kind of a call, and the diagnostics for mixing kinds. Aggregates take per-row arguments. */
-const callKind = (
-  fn: LibraryFunction,
-  kinds: readonly Kind[],
-  origin: Origin
-): { kind: Kind; emit: Emit } => {
-  const constants = fn.constParams
-    .filter((i) => i < kinds.length && kinds[i] !== 'const')
-    .map((i) =>
-      diagnostic('constant_required', `argument ${i} of ${fn.name} must be a constant`, origin)
-    );
-  if (fn.kind === 'agg') {
-    return {
-      kind: 'agg',
-      emit: report(
-        ...constants,
-        ...(kinds.includes('agg')
-          ? [
-              diagnostic(
-                'nested_aggregate',
-                `${fn.name} cannot take an aggregate as an argument`,
-                origin
-              ),
-            ]
-          : [])
-      ),
-    };
-  }
-  const mixed = kinds.includes('agg') && kinds.includes('scalar');
-  return {
-    kind: kinds.includes('agg') ? 'agg' : kinds.includes('scalar') ? 'scalar' : 'const',
-    emit: report(
-      ...constants,
-      ...(mixed
-        ? [diagnostic('mixed_kinds', `${fn.name} mixes an aggregate with a per-row value`, origin)]
-        : [])
-    ),
-  };
-};
-
-const expectScalar = (value: Typed, what: string, origin: Origin): Emit =>
-  scalarish(value.kind)
-    ? none
-    : report(diagnostic('aggregate_in_scalar_context', `${what} cannot use an aggregate`, origin));
-
-const scalarish = (k: Kind): boolean => k === 'const' || k === 'scalar';
 
 const at = (path: string): Origin => ({ path });
