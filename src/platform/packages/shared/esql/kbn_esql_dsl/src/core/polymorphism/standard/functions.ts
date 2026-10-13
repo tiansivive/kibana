@@ -29,18 +29,35 @@ const integer = esqlType('integer');
 const keyword = esqlType('keyword');
 const double = esqlType('double');
 const long = esqlType('long');
+const s = varType('s');
+const t = varType('t');
+const u = varType('u');
 
 const requires = (protocol: string, ...args: readonly Mono[]): Requires => ({ protocol, args });
+
+/** How many parameters must be given, and the type of any further arguments. */
+interface Arity {
+  readonly required?: number;
+  readonly rest?: Mono;
+}
 
 const fn = (
   name: string,
   params: readonly Mono[],
   result: Mono,
-  required: readonly Requires[],
-  kinds: KindSignature
+  needs: readonly Requires[],
+  kinds: KindSignature,
+  arity: Arity = {}
 ): LibraryFunction => ({
   name,
-  type: { tag: 'poly', requires: required, params, result },
+  type: {
+    tag: 'poly',
+    requires: needs,
+    params,
+    required: arity.required ?? params.length,
+    result,
+    ...(arity.rest ? { rest: arity.rest } : {}),
+  },
   kinds,
 });
 
@@ -49,9 +66,43 @@ const scalar = (...params: readonly ParamKind[]): KindSignature => ({ params, re
 
 const aggregate = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'agg' });
 
+/** The kind of every argument after the listed parameters. */
+const variadic = (kinds: KindSignature, rest: ParamKind): KindSignature => ({ ...kinds, rest });
+
 export const functions: readonly LibraryFunction[] = [
   fn('abs', [a], a, [requires('Numeric', a)], scalar('k')),
-  fn('round', [a], a, [requires('Numeric', a)], scalar('k')),
+  fn('round', [a, b], a, [requires('Numeric', a), requires('SignedNumeric', b)], scalar('k', 'k'), {
+    required: 1,
+  }),
+  fn(
+    'substring',
+    [s, integer, integer],
+    keyword,
+    [requires('Norm', s, keyword)],
+    scalar('k', 'k', 'k'),
+    {
+      required: 2,
+    }
+  ),
+  // every argument has the same normal form, so `text` and `keyword` can be mixed
+  fn(
+    'coalesce',
+    [a],
+    b,
+    [requires('Norm', a, b), requires('Norm', u, b)],
+    variadic(scalar('k'), 'k'),
+    {
+      rest: u,
+    }
+  ),
+  fn(
+    'concat',
+    [s, t],
+    keyword,
+    [requires('Norm', s, keyword), requires('Norm', t, keyword), requires('Norm', u, keyword)],
+    variadic(scalar('k', 'k'), 'k'),
+    { rest: u }
+  ),
   fn('add', [a, b], c, [requires('Arith', a, b, c)], scalar('k', 'k')),
   fn('greater_than', [a, b], boolean, [requires('Comparable', a, b)], scalar('k', 'k')),
   fn('equals', [a, b], boolean, [requires('Equatable', a, b)], scalar('k', 'k')),

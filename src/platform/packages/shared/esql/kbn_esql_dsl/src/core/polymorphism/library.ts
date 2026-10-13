@@ -51,6 +51,14 @@ export const makeLibrary = (
       .filter((f) => f.kinds.params.length !== f.type.params.length)
       .map((f) => `${f.name} has a kind signature with a different number of parameters`),
     ...functions
+      .filter((f) => (f.kinds.rest === undefined) !== (f.type.rest === undefined))
+      .map(
+        (f) => `${f.name} has a kind signature that disagrees with its type about further arguments`
+      ),
+    ...functions
+      .filter((f) => f.type.required < 0 || f.type.required > f.type.params.length)
+      .map((f) => `${f.name} requires ${f.type.required} of ${f.type.params.length} parameters`),
+    ...functions
       .filter((f, i) => functions.findIndex((other) => other.name === f.name) !== i)
       .map((f) => `${f.name} has more than one type`),
   ];

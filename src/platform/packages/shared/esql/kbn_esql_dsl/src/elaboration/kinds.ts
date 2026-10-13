@@ -26,11 +26,12 @@ export const callKind = (
   kinds: readonly Kind[],
   location: Location
 ): { kind: Kind; emit: Emit } => {
-  const { params, result } = fn.kinds;
-  const argumentsFor = (wanted: string) => kinds.filter((_, i) => params[i] === wanted);
+  const { params, result, rest } = fn.kinds;
+  const kindOf = (i: number) => params[i] ?? rest;
+  const argumentsFor = (wanted: string) => kinds.filter((_, i) => kindOf(i) === wanted);
   const open = argumentsFor('k');
-  const constants = params.flatMap((p, i) =>
-    p === 'const' && i < kinds.length && kinds[i] !== 'const'
+  const constants = kinds.flatMap((kind, i) =>
+    kindOf(i) === 'const' && kind !== 'const'
       ? [
           diagnostic(
             'constant_required',

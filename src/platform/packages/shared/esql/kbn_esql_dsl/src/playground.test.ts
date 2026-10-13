@@ -132,7 +132,7 @@ const describeExample = ({ title, ast, options }: Example): string => {
     `principal type: ${Print.principal(standardLibrary, analysis.principal)}`,
     '',
     'elaborated Core:',
-    Print.core(analysis.core, analysis.solution, { library: standardLibrary, explain }),
+    Print.core(analysis.core, analysis.solution, { explain }),
     '',
   ].join('\n');
 };

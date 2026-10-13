@@ -14,7 +14,7 @@ import { ESQL_TYPES } from '../../../vocabulary/esql_type';
 import type { EsqlType } from '../../../vocabulary/esql_type';
 import { typecheck } from '../../../typecheck';
 import { standardLibrary } from './standard';
-import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, SUM, TOP } from './tables';
+import { ABS, ADD, AVG, EQUALS, GREATER_THAN, MAX, STRING, SUM, TOP } from './tables';
 
 /**
  * The standard library against the published tables, for every combination of types. A table
@@ -130,6 +130,50 @@ describe('standard library against the published tables', () => {
         result: lookup(ABS, ty) === undefined ? undefined : [ty],
       });
     });
+  });
+});
+
+describe('standard library: optional and further parameters', () => {
+  const textual = ESQL_TYPES.filter((ty) => lookup(STRING, ty) !== undefined);
+
+  it('round accepts a numeric value with an optional signed numeric count of decimals', () => {
+    pairs.forEach(([a, b]) => {
+      const accepted = lookup(ABS, a) !== undefined && lookup(AVG, b) !== undefined;
+      expect({ a, b, result: scalarResult('round', a, b) }).toEqual({
+        a,
+        b,
+        result: accepted ? [a] : undefined,
+      });
+    });
+  });
+
+  it('substring accepts text with a start and an optional length', () => {
+    ESQL_TYPES.forEach((ty) => {
+      const expected = lookup(STRING, ty) === undefined ? undefined : ['keyword'];
+      expect(scalarResult('substring', ty, 'integer')).toEqual(expected);
+      expect(scalarResult('substring', ty, 'integer', 'integer')).toEqual(expected);
+    });
+  });
+
+  it('concat accepts any number of text and keyword values in any order', () => {
+    pairs.forEach(([a, b]) => {
+      const accepted = textual.includes(a) && textual.includes(b);
+      expect(scalarResult('concat', a, b)).toEqual(accepted ? ['keyword'] : undefined);
+    });
+    expect(scalarResult('concat', 'text', 'keyword', 'text', 'keyword', 'text')).toEqual([
+      'keyword',
+    ]);
+    expect(scalarResult('concat', 'text', 'keyword', 'long')).toBeUndefined();
+  });
+
+  it('coalesce gives every argument one type, normalised', () => {
+    ESQL_TYPES.forEach((ty) => {
+      const expected = [ty === 'text' ? 'keyword' : ty];
+      expect(scalarResult('coalesce', ty)).toEqual(expected);
+      expect(scalarResult('coalesce', ty, ty, ty)).toEqual(expected);
+    });
+    expect(scalarResult('coalesce', 'long', 'double')).toBeUndefined();
+    expect(scalarResult('coalesce', 'text', 'keyword', 'text')).toEqual(['keyword']);
   });
 });
 

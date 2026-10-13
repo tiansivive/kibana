@@ -8,7 +8,28 @@
  */
 
 import type { Typechecked } from '.';
-import { abs, typecheck, and, avg, count, eq, from, gt, lit, max, sum, top, typed } from '.';
+import {
+  abs,
+  typecheck,
+  and,
+  avg,
+  coalesce,
+  concat,
+  count,
+  eq,
+  from,
+  gt,
+  lit,
+  max,
+  Print,
+  round,
+  substring,
+  sum,
+  top,
+  typed,
+} from '.';
+import { call } from './dsl/expr';
+import { standardLibrary } from './core/polymorphism/standard/standard';
 
 const required = (a: Typechecked) => Object.fromEntries(a.required);
 const output = (a: Typechecked) => Object.fromEntries(a.output.columns);
@@ -223,5 +244,125 @@ describe('typecheck: against a known schema', () => {
     const a = typecheck(q.ast, { schema: { b: 'long' } });
     expect(codes(a)).toEqual(['unknown_column']);
     expect(a.diagnostics[0].message).toContain('available: b');
+  });
+});
+
+describe('typecheck: optional parameters', () => {
+  const schema = { x: 'double', d: 'long', s: 'text', n: 'keyword' } as const;
+
+  it('takes a function with or without its optional parameters', () => {
+    const without = typecheck(from('i').eval('r', (c) => round(c.x)).ast, { schema });
+    const withDecimals = typecheck(from('i').eval('r', (c) => round(c.x, lit.int(2))).ast, {
+      schema,
+    });
+    expect([without.ok, output(without)]).toEqual([
+      true,
+      { x: ['double'], d: ['long'], s: ['text'], n: ['keyword'], r: ['double'] },
+    ]);
+    expect(withDecimals.ok).toBe(true);
+    expect(output(withDecimals).r).toEqual(['double']);
+  });
+
+  it('requires nothing of an optional parameter that is left out', () => {
+    const a = typecheck(from('i').eval('r', (c) => round(c.x)).ast);
+    expect(Print.principal(standardLibrary, a.principal)).toBe(
+      'forall a. Numeric a => { x: a, ... } -> { r: a, x: a, ... }'
+    );
+  });
+
+  it('checks the optional parameter when it is given', () => {
+    const a = typecheck(from('i').eval('r', (c) => round(c.x, c.n)).ast, { schema });
+    expect(codes(a)).toEqual(['no_instance']);
+    expect(a.diagnostics[0].message).toBe('SignedNumeric has no instance for (ES.keyword)');
+    expect(typecheck(from('i').eval('r', (c) => round(c.x, c.d)).ast, { schema }).ok).toBe(true);
+  });
+
+  it('gives substring the result of its text argument as keyword', () => {
+    const a = typecheck(from('i').eval('r', (c) => substring(c.s, lit.int(1), lit.int(3))).ast, {
+      schema,
+    });
+    expect(a.ok).toBe(true);
+    expect(output(a).r).toEqual(['keyword']);
+    expect(
+      typecheck(from('i').eval('r', (c) => substring(c.s, lit.int(1))).ast, { schema }).ok
+    ).toBe(true);
+    expect(
+      codes(typecheck(from('i').eval('r', (c) => substring(c.x, lit.int(1))).ast, { schema }))
+    ).toEqual(['no_instance']);
+  });
+
+  it('reports a wrong number of arguments with the numbers the function takes', () => {
+    const message = (fn: string, given: number) => {
+      const a = typecheck(
+        from('i').eval('r', () =>
+          call<'long', 'scalar'>(fn, ...Array.from({ length: given }, () => lit.int(1)))
+        ).ast
+      );
+      return [codes(a), a.diagnostics[0]?.message];
+    };
+    expect(message('round', 0)).toEqual([['arity'], 'round takes 1 to 2 arguments, got 0']);
+    expect(message('round', 3)).toEqual([['arity'], 'round takes 1 to 2 arguments, got 3']);
+    expect(message('substring', 1)).toEqual([['arity'], 'substring takes 2 to 3 arguments, got 1']);
+    expect(message('abs', 2)).toEqual([['arity'], 'abs takes 1 argument, got 2']);
+  });
+});
+
+describe('typecheck: variadic parameters', () => {
+  const schema = { a: 'text', b: 'keyword', c: 'text', l: 'long', i: 'integer' } as const;
+
+  it('takes text and keyword together in coalesce, since both are keyword once normalised', () => {
+    const a = typecheck(from('i').eval('r', (c) => coalesce(c.a, c.b, c.c)).ast, { schema });
+    expect(a.ok).toBe(true);
+    expect(output(a).r).toEqual(['keyword']);
+  });
+
+  it('gives coalesce the type of its arguments, with text as keyword', () => {
+    const same = typecheck(from('i').eval('r', (c) => coalesce(c.b, lit.str('x'))).ast, { schema });
+    expect(same.ok).toBe(true);
+    expect(output(same).r).toEqual(['keyword']);
+    const texts = typecheck(from('i').eval('r', (c) => coalesce(c.a, c.c)).ast, { schema });
+    expect(output(texts).r).toEqual(['keyword']);
+  });
+
+  it('rejects arguments of coalesce that differ in type', () => {
+    const a = typecheck(from('i').eval('r', (c) => coalesce(c.l, c.i)).ast, { schema });
+    expect(codes(a)).toEqual(['no_instance']);
+    expect(a.diagnostics[0].message).toBe('Norm has no instance for (ES.integer, ES.long)');
+  });
+
+  it('ties the normal forms of the arguments of coalesce together while the columns are unknown', () => {
+    const a = typecheck(from('i').eval('r', (c) => coalesce(c.p, c.q, c.u)).ast);
+    expect(a.ok).toBe(true);
+    expect(Print.principal(standardLibrary, a.principal)).toContain(
+      '(Norm a d, Norm b d, Norm c d) =>'
+    );
+  });
+
+  it('takes any mix of text and keyword in concat, and nothing else', () => {
+    const mixed = typecheck(
+      from('i').eval('r', (c) => concat(c.a, c.b, c.c, c.b, lit.str('!'))).ast,
+      { schema }
+    );
+    expect(mixed.ok).toBe(true);
+    expect(output(mixed).r).toEqual(['keyword']);
+    const number = typecheck(from('i').eval('r', (c) => concat(c.a, c.b, c.l)).ast, { schema });
+    expect(codes(number)).toEqual(['no_instance']);
+    expect(number.diagnostics[0].location.path).toBe('pipe[0].eval.expr');
+    expect(number.diagnostics[0].message).toBe('Norm has no instance for (ES.long, ES.keyword)');
+  });
+
+  it('needs an instance for each further argument', () => {
+    const a = typecheck(from('i').eval('r', (c) => concat(c.a, c.b, c.c, c.l)).ast, { schema });
+    expect(a.ok).toBe(false);
+    expect(typecheck(from('i').eval('r', (c) => concat(c.a, c.b)).ast, { schema }).ok).toBe(true);
+  });
+
+  it('reports too few arguments', () => {
+    const none = typecheck(from('i').eval('r', () => call<'keyword', 'scalar'>('coalesce')).ast);
+    expect(none.diagnostics[0].message).toBe('coalesce takes at least 1 argument, got 0');
+    const one = typecheck(
+      from('i').eval('r', () => call<'keyword', 'scalar'>('concat', lit.str('a'))).ast
+    );
+    expect(one.diagnostics[0].message).toBe('concat takes at least 2 arguments, got 1');
   });
 });

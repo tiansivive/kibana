@@ -32,8 +32,14 @@ export type CoreExpr =
       readonly args: readonly CoreExpr[];
       readonly type: Mono;
       /** The instances this call needs, by placeholder. The solution says which they are. */
-      readonly instances: readonly Hole[];
+      readonly instances: readonly Needed[];
     };
+
+/** An instance of `protocol` a call needs, named by the placeholder that records which it is. */
+export interface Needed {
+  readonly hole: Hole;
+  readonly protocol: string;
+}
 
 export interface CoreNamed {
   readonly name: string;

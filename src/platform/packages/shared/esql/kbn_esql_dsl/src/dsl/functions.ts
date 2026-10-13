@@ -14,6 +14,7 @@ import type {
   EQUALS,
   GREATER_THAN,
   MAX,
+  STRING,
   SUM,
   TOP,
 } from '../core/polymorphism/standard/tables';
@@ -22,7 +23,7 @@ import type { Kind } from '../vocabulary/kind';
 import type { AnyExpr, Expr } from './expr';
 import { call, mk } from './expr';
 import type { ExprType, Inferred, Lookup } from './inferred';
-import type { CompatibleWith, Join, Operand, Scalarish } from './kinds';
+import type { CompatibleWith, Join, JoinAll, Operand, Rest, Scalarish } from './kinds';
 
 /**
  * Binary operands are typed with separate kind parameters so inference never unions them.
@@ -73,9 +74,47 @@ export const abs = <T extends keyof typeof ABS | Inferred, K extends Operand>(
   e: Expr<T, K>
 ): Expr<Lookup<typeof ABS, T>, K> => call('abs', e);
 
-export const round = <T extends keyof typeof ABS | Inferred, K extends Operand>(
-  e: Expr<T, K>
-): Expr<T, K> => call('round', e);
+export const round = <
+  T extends keyof typeof ABS | Inferred,
+  K extends Operand,
+  KD extends CompatibleWith<K> | 'const' = 'const'
+>(
+  e: Expr<T, K>,
+  decimals?: Expr<keyof typeof AVG | Inferred, KD>
+): Expr<T, Join<K, KD>> => call('round', e, ...(decimals ? [decimals] : []));
+
+export const substring = <
+  T extends keyof typeof STRING | Inferred,
+  K extends Operand,
+  KS extends CompatibleWith<K>,
+  KL extends CompatibleWith<Join<K, KS>> | 'const' = 'const'
+>(
+  s: Expr<T, K>,
+  start: Expr<'integer', KS>,
+  length?: Expr<'integer', KL>
+): Expr<Lookup<typeof STRING, T>, Join<Join<K, KS>, KL>> =>
+  call('substring', s, start, ...(length ? [length] : []));
+
+/** Every argument has the type of the first, where `text` and `keyword` count as the same. */
+export const coalesce = <
+  T extends EsqlType | Inferred,
+  K extends Operand,
+  R extends readonly CompatibleWith<K>[]
+>(
+  first: Expr<T, K>,
+  ...rest: Rest<Alike<T>, R>
+): Expr<NormalForm<T>, JoinAll<K, R>> => call('coalesce', first, ...rest);
+
+/** Each argument is `keyword` or `text`, in any order. */
+export const concat = <
+  KA extends Operand,
+  KB extends CompatibleWith<KA>,
+  R extends readonly CompatibleWith<Join<KA, KB>>[]
+>(
+  first: Expr<Text, KA>,
+  second: Expr<Text, KB>,
+  ...rest: Rest<Text, R>
+): Expr<'keyword', JoinAll<Join<KA, KB>, R>> => call('concat', first, second, ...rest);
 
 /** Aggregates take per-row arguments, so an aggregate nested in an aggregate is rejected. */
 export const avg = <T extends keyof typeof AVG | Inferred>(
@@ -112,6 +151,18 @@ export const typed = <T extends EsqlType, K extends Kind>(
 type Second<Table, A> = A extends keyof Table
   ? Extract<keyof Table[A], EsqlType> | Inferred
   : ExprType;
+
+type Text = keyof typeof STRING | Inferred;
+
+/**
+ * What may follow an argument of type `T` where all must have the same normal form. A column of
+ * unknown type could be anything, so it takes any.
+ */
+type Alike<T> = T extends Inferred
+  ? ExprType
+  : (NormalForm<T> extends 'keyword' ? 'keyword' | 'text' : T) | Inferred;
+
+type NormalForm<T> = T extends 'text' ? 'keyword' : T;
 
 type Result<Table, A, B> = A extends keyof Table
   ? B extends keyof Table[A]

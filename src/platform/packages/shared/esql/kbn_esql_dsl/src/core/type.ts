@@ -21,12 +21,19 @@ export type Mono =
  * The type of a function: `forall vars. requires => params -> result`. Only functions are
  * polymorphic, so the arrow and the qualified type are one record, and every variable is
  * quantified at the front.
+ *
+ * `params` lists every positional parameter and the last `params.length - required` of them are
+ * optional. A function with `rest` also takes any number of further arguments of that type. A
+ * variable that occurs only in `rest` and in `requires` stands for each further argument
+ * separately, so `concat` can take `text` and `keyword` in any order.
  */
 export interface Poly {
   readonly tag: 'poly';
   readonly requires: readonly Requires[];
   readonly params: readonly Mono[];
+  readonly required: number;
   readonly result: Mono;
+  readonly rest?: Mono;
 }
 
 /** The types of `args` must be the types of one instance of `protocol`. */
