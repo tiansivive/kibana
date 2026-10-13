@@ -67,12 +67,14 @@ interface LibraryFunction {
 
 ```
 abs   :: forall a. Numeric a => a -> a
-avg   :: forall a. SignedNumeric a => a -> double
+avg   :: forall a. SignedNumeric a => a -> ES.double
 sum   :: forall a b. (SignedNumeric a, Wide a b) => a -> b
 max   :: forall a b. (Orderable a, Norm a b) => a -> b
-add   :: forall a b c. Arith a b c => a -> b -> c
-count :: forall a. a -> long                          -- needs no protocol
+add   :: forall a b c. Arith a b c => (a, b) -> c
+count :: forall a. a -> ES.long                       -- needs no protocol
 ```
+
+The parameters are a list, written `(a, b) -> c`, because functions are applied to all their arguments at once and never partially. `kind` and `constParams` are not in the type, and `Print.fn` shows them beside it, as in `top :: forall a b. (Orderable a, Norm a b) => (a, ES.integer, ES.keyword) -> b  -- agg; constant parameters 1, 2`.
 
 The variety in ES|QL's accepted types is carried by instances, never by several types per function. `add` accepts numbers and also a time value with a time quantity, and `Arith` holds the instances of both. Given the first type, the instances restrict the second and determine the result.
 
@@ -166,7 +168,7 @@ The columns visible after a stage form a **row** `{ fields, tail }`. `fields` ar
 - **A declaration prints as the expression it declares.** It is a typing device.
 - **Printing a typed query is checked by parsing it back** with `@elastic/esql`'s parser.
 
-`printCore(core, solution, options)` shows the elaborated Core as an indented tree: every expression with its type, and every call with the instances it needed. It looks types up in the solution as it prints, and shows a type that is still unknown as its meta or as the explanation it is given.
+`Print.core(core, solution, options)` shows the elaborated Core as an indented tree: every expression with its type, and every call with the instances it needed. It looks types up in the solution as it prints, and shows a type that is still unknown as its meta or as the explanation it is given.
 
 ## TypeScript layer
 
@@ -233,21 +235,21 @@ Implemented:
 - The Core and bidirectional elaboration into it, with a placeholder for every instance. The Core is never rewritten: types are looked up in the solution on demand.
 - The solver: unification recorded as links, and wanted constraints resolved with instances and dependencies, in a few small files. A property test checks that a constraint network with a solution is never rejected and that the result does not depend on constraint order.
 - Open rows with `lacks`, diagnostics with AST-path provenance, guidance computed from the waiting constraints, and `typecheck(ast, { schema? })`, which returns the diagnostics, the types of the columns read and produced, the Core, and the solution.
-- `compile`, which turns the Core into an `@elastic/esql` query for every command and expression the library has, and `printCore`.
-- A playground, `src/playground.test.ts`: a list of example queries, each printed as the ES|QL it compiles to, whether it checks, the guidance for unknown columns and the elaborated Core.
+- `compile`, which turns the Core into an `@elastic/esql` query for every command and expression the library has, and the printer.
+- `typecheck` reports the principal type (`Typechecked.principal`) and `Print.principal` shows it, for example `forall a b. (SignedNumeric a, Wide a b) => { a: a, ... } -> { total: b }`. `Print.ty` in `core/print.ts`, imported as `import * as Print`, shows every type the same way: ES|QL types with an `ES.` prefix (`ES.keyword`) so they are never mistaken for variables, variables by name, and a function's type as `forall a b. (SignedNumeric a, Wide a b) => a -> b`, with several parameters as `(a, b) -> c`. Diagnostics, `Print.core`, `Print.principal` and the playground all use it. Unknown column types are variables, `P` is the undecided protocol facts with `FieldType` on source columns left out and repeats dropped, and a closed schema leaves no variables. Variables that belong to neither row, such as the result of an inner `add`, stay in `P`. Guidance per column is the projection of `P` onto one variable.
+- A playground, `src/playground.test.ts`: a list of example queries, each printed as the ES|QL it compiles to, whether it checks, the guidance for unknown columns, the principal type and the elaborated Core.
+- A REPL, `repl.js`, run from the repository root with `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js`: the package exports are in scope, and `show(query, { schema? })` prints what the playground prints for one query. `:t name` shows a function's type, and `:t` alone lists them all.
 
 Not yet implemented:
 
 - Running a compiled query against Elasticsearch, and comparing its result columns with the inferred output.
-- The principal type reported as `forall src. P => required -> output`. The waiting constraints exist in the solution but `typecheck` reports only guidance per column.
 - Optional and repeating parameters, grouping functions and string-literal protocols.
 
 ## Build order
 
 1. **Grow the library** as functions are needed.
-2. **Report the waiting constraints** as guidance with the principal type.
-3. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
-4. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
+2. **ES oracle** for the open questions and the soundness test, with a local cluster started through `createTestEsCluster` from `@kbn/test-es-server`.
+3. **Generate TypeScript signatures** from the function types, if the library grows enough to justify it.
 
 ## Out of scope
 

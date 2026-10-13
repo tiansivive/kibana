@@ -29,7 +29,7 @@ import {
   lit,
   max,
   param,
-  printCore,
+  Print,
   sum,
 } from '.';
 import type { TypecheckOptions, QueryAst } from '.';
@@ -104,7 +104,8 @@ const describeExample = ({ title, ast, options }: Example): string => {
   const analysis = typecheck(ast, options);
   const explain = (type: Parameters<typeof candidates>[2]) => {
     const types = candidates(standardLibrary, analysis.solution, type);
-    return type.tag === 'meta' ? `?${type.meta} could be {${types.join(', ')}}` : types.join(', ');
+    const shown = types.map(Print.esqlType).join(', ');
+    return type.tag === 'meta' ? `?${type.meta} could be {${shown}}` : shown;
   };
   return [
     `==== ${title}`,
@@ -121,13 +122,17 @@ const describeExample = ({ title, ast, options }: Example): string => {
     ...(analysis.required.size === 0 ? ['  none that the checker had to infer'] : []),
     ...[...analysis.required].map(
       ([name, types]) =>
-        `  ${name}: ${types.length === 1 ? types[0] : `{${types.join(', ')}}`}${
-          types.length === 0 ? '  (nothing satisfies every use)' : ''
-        }`
+        `  ${name}: ${
+          types.length === 1
+            ? Print.esqlType(types[0])
+            : `{${types.map(Print.esqlType).join(', ')}}`
+        }${types.length === 0 ? '  (nothing satisfies every use)' : ''}`
     ),
     '',
+    `principal type: ${Print.principal(analysis.principal)}`,
+    '',
     'elaborated Core:',
-    printCore(analysis.core, analysis.solution, { library: standardLibrary, explain }),
+    Print.core(analysis.core, analysis.solution, { library: standardLibrary, explain }),
     '',
   ].join('\n');
 };

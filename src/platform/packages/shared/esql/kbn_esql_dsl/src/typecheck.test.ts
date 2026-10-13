@@ -211,7 +211,7 @@ describe('typecheck: against a known schema', () => {
   it('rejects a column whose declared type no signature accepts', () => {
     const a = typecheck(q.ast, { schema: { a: 'keyword' } });
     expect(codes(a)).toEqual(['no_instance']);
-    expect(a.diagnostics[0].message).toBe('SignedNumeric has no instance for (keyword)');
+    expect(a.diagnostics[0].message).toBe('SignedNumeric has no instance for (ES.keyword)');
   });
 
   it('rejects arguments that are individually fine but jointly have no signature', () => {

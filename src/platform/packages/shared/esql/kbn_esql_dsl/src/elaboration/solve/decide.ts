@@ -7,6 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
+import * as Print from '../../core/print';
 import { diagnostic } from '../../diagnostics/diagnostic';
 import { withEntry } from '../../immutable';
 import type { EsqlType } from '../../esql_type';
@@ -74,7 +75,7 @@ const noInstance = (solution: Solution, w: Wanted, args: readonly Mono[]): Solut
           ...solution.diagnostics,
           diagnostic(
             'no_instance',
-            `${w.protocol} has no instance for (${args.map(show).join(', ')})`,
+            `${w.protocol} has no instance for (${args.map((a) => Print.ty(a)).join(', ')})`,
             w.origin
           ),
         ],
@@ -89,5 +90,3 @@ const matches = (
     const arg = args[i];
     return arg.tag === 'esql' && instance[i] === arg.esql;
   });
-
-const show = (type: Mono): string => (type.tag === 'esql' ? type.esql : '?');
