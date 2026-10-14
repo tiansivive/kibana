@@ -8,7 +8,7 @@
  */
 
 import type { Kind } from '../vocabulary/kind';
-import type { Expr } from './expr';
+import type { AnyExpr, Expr } from './expr';
 import type { ExprType } from './inferred';
 
 export type Operand = Exclude<Kind, 'grouping'>;
@@ -30,13 +30,25 @@ export type CompatibleWith<A extends Operand> = A extends 'const'
   ? Scalarish
   : 'const' | 'agg';
 
-/** The kind of a call that takes the kinds `R` after one of kind `K`. */
-export type JoinAll<K extends Operand, R extends readonly Operand[]> = R extends readonly [
-  infer H extends Operand,
-  ...infer Tail extends readonly Operand[]
-]
+/**
+ * The kind of a call that takes the kinds `R` after one of kind `K`. A list whose length is not
+ * known, such as a spread array, joins all its kinds at once.
+ */
+export type JoinAll<K extends Operand, R extends readonly Operand[]> = number extends R['length']
+  ? Join<K, R[number]>
+  : R extends readonly [infer H extends Operand, ...infer Tail extends readonly Operand[]]
   ? JoinAll<Join<K, H>, Tail>
   : K;
+
+/** The ES|QL types of a list of expressions. */
+export type TypesOf<E extends readonly AnyExpr[]> = {
+  readonly [I in keyof E]: E[I] extends Expr<infer T, Kind> ? T : never;
+};
+
+/** The kinds of a list of expressions. */
+export type KindsOf<E extends readonly AnyExpr[]> = {
+  readonly [I in keyof E]: E[I] extends Expr<ExprType, infer K extends Operand> ? K : never;
+};
 
 /** The further arguments of a variadic call: one expression of type `T` for each kind in `R`. */
 export type Rest<T extends ExprType, R extends readonly Operand[]> = {

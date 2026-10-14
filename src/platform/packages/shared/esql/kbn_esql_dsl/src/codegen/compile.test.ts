@@ -118,6 +118,25 @@ describe('compile: rename, null checks, conversions and KQL', () => {
   });
 });
 
+describe('compile: operators with any number of operands', () => {
+  it('prints a chain of and, or and add without parentheses', () => {
+    expect(
+      printed(
+        logs().where((c) =>
+          and(
+            gt(c.bytes, lit.long(1)),
+            gt(c.risk, lit.double(0.5)),
+            or(eq(c.status, lit.int(1)), eq(c.status, lit.int(2))),
+            gt(add(c.bytes, c.status, c.bytes, c.status), lit.long(0))
+          )
+        ).ast
+      )
+    ).toBe(
+      'FROM logs-* | WHERE bytes > 1::LONG AND risk > 0.5 AND (status == 1 OR status == 2) AND bytes + status + bytes + status > 0::LONG'
+    );
+  });
+});
+
 describe('compile: expressions', () => {
   const where = (build: Parameters<ReturnType<typeof logs>['where']>[0]) =>
     printed(logs().where(build).ast);
