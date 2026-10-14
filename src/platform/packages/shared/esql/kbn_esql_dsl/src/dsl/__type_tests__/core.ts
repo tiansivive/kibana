@@ -26,6 +26,7 @@ import {
   gt,
   lit,
   max,
+  or,
   round,
   substring,
   sum,
@@ -270,3 +271,42 @@ open
     assertType<Equal<typeof c.e, Expr<'keyword', 'scalar'>>>();
     return eq(c.e, lit.str('x'));
   });
+
+// --- operators that take any number of operands ------------------------------------------------
+
+// `and`, `or` and `add` take two or more operands.
+logs().where((c) =>
+  and(
+    gt(c.bytes, lit.long(1)),
+    eq(c.ok, lit.bool(true)),
+    gt(c.risk, lit.double(0.5)),
+    eq(c['host.name'], lit.str('a'))
+  )
+);
+logs().where((c) =>
+  or(gt(c.bytes, lit.long(1)), gt(c.risk, lit.double(1)), eq(c.ok, lit.bool(true)))
+);
+
+// The type of a sum follows the widening of each step.
+const sums = logs()
+  .eval('same', (c) => add(c.bytes, c.bytes, c.bytes, c.bytes))
+  .eval('widened', (c) => add(c.status, c.status, c.risk))
+  .eval('long', (c) => add(c.status, c.status, c.bytes));
+assertType<Equal<SchemaOf<typeof sums>['same'], 'long'>>();
+assertType<Equal<SchemaOf<typeof sums>['widened'], 'double'>>();
+assertType<Equal<SchemaOf<typeof sums>['long'], 'long'>>();
+
+// @ts-expect-error a keyword cannot be added to a number, whichever operand it is
+logs().eval('x', (c) => add(c.bytes, c.status, c['host.name']));
+
+// @ts-expect-error every operand of `and` is a boolean
+logs().where((c) => and(gt(c.bytes, lit.long(1)), eq(c.ok, lit.bool(true)), c.bytes));
+
+logs().where((c) =>
+  and(
+    eq(c.ok, lit.bool(true)),
+    eq(c.ok, lit.bool(false)),
+    // @ts-expect-error an aggregate cannot be mixed with a per-row value, whichever operand it is
+    gt(sum(c.bytes), lit.long(1))
+  )
+);

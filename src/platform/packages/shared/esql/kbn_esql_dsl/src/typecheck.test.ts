@@ -10,6 +10,7 @@
 import type { Typechecked } from '.';
 import {
   abs,
+  add,
   typecheck,
   and,
   avg,
@@ -441,5 +442,29 @@ describe('typecheck: null checks, conversions, KQL and RENAME', () => {
   it('reports a column that is renamed but not there', () => {
     const a = typecheck(from('i').rename('x', 'y').ast, { schema: { a: 'long' } });
     expect(codes(a)).toEqual(['unknown_column']);
+  });
+});
+
+describe('typecheck: operators with any number of operands', () => {
+  const schema = { a: 'integer', b: 'integer', c: 'double', k: 'keyword', ok: 'boolean' } as const;
+
+  it('widens a sum one operand at a time', () => {
+    const a = typecheck(from('i').eval('s', (c) => add(c.a, c.b, c.c)).ast, { schema });
+    expect(a.ok).toBe(true);
+    expect(output(a).s).toEqual(['double']);
+  });
+
+  it('reports the operand a sum cannot take, at the operation that fails', () => {
+    const a = typecheck(from('i').eval('s', (c) => add(c.a, c.b, c.k)).ast, { schema });
+    expect(codes(a)).toEqual(['no_instance']);
+    expect(a.diagnostics[0].location.path).toBe('pipe[0].eval.expr');
+  });
+
+  it('checks every operand of a chain of and', () => {
+    const a = typecheck(
+      from('i').where((c) => and(c.ok, eq(c.k, lit.str('x')), gt(c.a, lit.int(1)), c.ok)).ast,
+      { schema }
+    );
+    expect(a.ok).toBe(true);
   });
 });

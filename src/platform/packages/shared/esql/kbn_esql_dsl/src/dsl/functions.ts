@@ -23,22 +23,51 @@ import type { Kind } from '../vocabulary/kind';
 import type { AnyExpr, Expr } from './expr';
 import { call, mk } from './expr';
 import type { ExprType, Inferred, Lookup } from './inferred';
-import type { CompatibleWith, Join, JoinAll, Operand, Rest, Scalarish } from './kinds';
+import type {
+  CompatibleWith,
+  Join,
+  JoinAll,
+  KindsOf,
+  Operand,
+  Rest,
+  Scalarish,
+  TypesOf,
+} from './kinds';
 
 /**
  * Binary operands are typed with separate kind parameters so inference never unions them.
  * `KB` is constrained by `KA`, which reports a `scalar` / `agg` mix at the second argument.
  */
 
-export const add = <
+/**
+ * Binary operators that take any number of operands fold to the left, so `add(a, b, c)` is
+ * `(a + b) + c`, which ES|QL prints and reads as `a + b + c`. The operands after the first two
+ * must suit the type of the sum so far and the kind of the operands before them. The two-operand
+ * form is its own signature because most calls are binary and the variadic one costs more to check.
+ */
+export function add<
   A extends keyof typeof ADD | Inferred,
   B extends Second<typeof ADD, A>,
   KA extends Operand,
   KB extends CompatibleWith<KA>
+>(l: Expr<A, KA>, r: Expr<B, KB>): Expr<Result<typeof ADD, A, B>, Join<KA, KB>>;
+export function add<
+  A extends keyof typeof ADD | Inferred,
+  B extends Second<typeof ADD, A>,
+  KA extends Operand,
+  KB extends CompatibleWith<KA>,
+  E extends readonly [
+    Expr<Second<typeof ADD, Result<typeof ADD, A, B>>, CompatibleWith<Join<KA, KB>>>,
+    ...Expr<Second<typeof ADD, Result<typeof ADD, A, B>>, CompatibleWith<Join<KA, KB>>>[]
+  ]
 >(
   l: Expr<A, KA>,
-  r: Expr<B, KB>
-): Expr<Result<typeof ADD, A, B>, Join<KA, KB>> => call('add', l, r);
+  r: Expr<B, KB>,
+  ...rest: E
+): Expr<SumOf<A | B | TypesOf<E>[number]>, JoinAll<Join<KA, KB>, KindsOf<E>>>;
+export function add(l: AnyExpr, r: AnyExpr, ...rest: readonly AnyExpr[]): unknown {
+  return fold('add', [l, r, ...rest]);
+}
 
 export const gt = <
   A extends keyof typeof GREATER_THAN | Inferred,
@@ -60,15 +89,25 @@ export const eq = <
   r: Expr<B, KB>
 ): Expr<'boolean', Join<KA, KB>> => call('equals', l, r);
 
-export const and = <KA extends Operand, KB extends CompatibleWith<KA>>(
-  l: Expr<'boolean', KA>,
-  r: Expr<'boolean', KB>
-): Expr<'boolean', Join<KA, KB>> => call('and', l, r);
+export const and = <
+  KA extends Operand,
+  KB extends CompatibleWith<KA>,
+  R extends readonly CompatibleWith<Join<KA, KB>>[]
+>(
+  l: Expr<Condition, KA>,
+  r: Expr<Condition, KB>,
+  ...rest: Rest<Condition, R>
+): Expr<'boolean', JoinAll<Join<KA, KB>, R>> => fold('and', [l, r, ...rest]);
 
-export const or = <KA extends Operand, KB extends CompatibleWith<KA>>(
-  l: Expr<'boolean', KA>,
-  r: Expr<'boolean', KB>
-): Expr<'boolean', Join<KA, KB>> => call('or', l, r);
+export const or = <
+  KA extends Operand,
+  KB extends CompatibleWith<KA>,
+  R extends readonly CompatibleWith<Join<KA, KB>>[]
+>(
+  l: Expr<Condition, KA>,
+  r: Expr<Condition, KB>,
+  ...rest: Rest<Condition, R>
+): Expr<'boolean', JoinAll<Join<KA, KB>, R>> => fold('or', [l, r, ...rest]);
 
 export const abs = <T extends keyof typeof ABS | Inferred, K extends Operand>(
   e: Expr<T, K>
@@ -167,6 +206,38 @@ export const typed = <T extends EsqlType, K extends Kind>(
   e: Expr<Inferred, K>
 ): Expr<T, K> => mk({ tag: 'ann', ty, expr: e.node });
 
+/** Applies a binary function of the library to a list of operands from the left. */
+const fold = <T extends ExprType, K extends Kind>(
+  fn: string,
+  operands: readonly AnyExpr[]
+): Expr<T, K> => {
+  const [first, ...others] = operands;
+  return mk(others.reduce<AnyExpr>((folded, next) => call(fn, folded, next), first).node);
+};
+
+/**
+ * The type of a sum of three or more operands. It is the widest number among them, or the type
+ * of the time value that quantities are added to, and it does not follow the order of the
+ * operands, so a combination that is not valid has some type here and is reported by `typecheck`.
+ * A fold over the table of `add` gives the same answer for valid operands, but costs far more to
+ * check, because TypeScript expands a recursive type over the whole table to check its signature.
+ */
+type SumOf<U extends ExprType> = [U] extends [EsqlType]
+  ? [U] extends ['integer' | 'long' | 'double']
+    ? 'double' extends U
+      ? 'double'
+      : 'long' extends U
+      ? 'long'
+      : 'integer'
+    : [U] extends ['unsigned_long']
+    ? 'unsigned_long'
+    : 'date' extends U
+    ? 'date'
+    : 'date_nanos' extends U
+    ? 'date_nanos'
+    : Inferred
+  : Inferred;
+
 /**
  * Second-argument types accepted after a first argument of type `A`, and the result type for `(A, B)`.
  * `Inferred` marks a column whose type is not known statically. It is accepted everywhere and
@@ -177,6 +248,9 @@ type Second<Table, A> = A extends keyof Table
   : ExprType;
 
 type Text = keyof typeof STRING | Inferred;
+
+/** What `and` and `or` take: a boolean, or a column whose type is not known yet. */
+type Condition = 'boolean' | Inferred;
 
 /**
  * What may follow an argument of type `T` where all must have the same normal form. A column of
