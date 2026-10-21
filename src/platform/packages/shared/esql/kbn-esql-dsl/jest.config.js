@@ -10,5 +10,5 @@
 module.exports = {
   preset: '@kbn/test',
   rootDir: '../../../../../..',
-  roots: ['<rootDir>/src/platform/packages/shared/esql/kbn_esql_dsl'],
+  roots: ['<rootDir>/src/platform/packages/shared/esql/kbn-esql-dsl'],
 };
