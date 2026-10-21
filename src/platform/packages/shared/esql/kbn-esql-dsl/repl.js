@@ -42,7 +42,7 @@ const describe = (q, options) => {
       : `\nproblems:\n${result.diagnostics
           .map((d) => `  ${d.location.path}: ${d.message}`)
           .join('\n')}`,
-    '\ncolumns read:',
+    '\ncolumns read, and the types the query allows each to have:',
     ...[...result.required].map(
       ([name, types]) => `  ${name}: {${types.map(dsl.Print.esqlType).join(', ')}}`
     ),
@@ -237,7 +237,7 @@ const check = async (query) => {
       : `preflight: problems\n${result.diagnostics
           .map((d) => `  ${d.location.path}: ${d.code}: ${d.message}`)
           .join('\n')}`,
-    '\ncolumns read:',
+    '\ncolumns read, as mapped in the index, and the types the query allows:',
     ...result.columns.map(
       (c) =>
         `  ${c.column}: mapped ${

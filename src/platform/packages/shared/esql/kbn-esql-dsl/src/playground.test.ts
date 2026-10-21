@@ -118,7 +118,7 @@ const describeExample = ({ title, ast, options }: Example): string => {
           ...analysis.diagnostics.map((d) => `  ${d.location.path}: ${d.message}`),
         ].join('\n'),
     '',
-    'columns read:',
+    'columns read, and the types the query allows each to have:',
     ...(analysis.required.size === 0 ? ['  none that the checker had to infer'] : []),
     ...[...analysis.required].map(
       ([name, types]) =>
