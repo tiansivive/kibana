@@ -9,7 +9,7 @@
 
 import type { EsqlType } from '../../vocabulary/esql_type';
 import type { ParamKind, ResultKind } from '../../vocabulary/kind';
-import { ownVariables, variableNames } from '../type';
+import { perElementVariables, variableNames } from '../type';
 import type { Mono, Param, Poly, Requires, Slot } from '../type';
 import type { Instance, Protocol } from './protocol';
 
@@ -113,9 +113,9 @@ const groupBy = <K, V>(items: readonly V[], key: (item: V) => K): ReadonlyMap<K,
 
 /** Whether a requirement mentions the variables that stand for the elements of two sequences. */
 const sharedBySequences = (type: Poly): boolean => {
-  const own = ownVariables(type);
+  const perElement = perElementVariables(type);
   return type.requires.some(
-    (r) => new Set(variableNames(r.args).flatMap((name) => own.get(name) ?? [])).size > 1
+    (r) => new Set(variableNames(r.args).flatMap((name) => perElement.get(name) ?? [])).size > 1
   );
 };
 
