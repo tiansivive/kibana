@@ -19,6 +19,7 @@ export type DiagnosticCode =
   | 'nested_aggregate'
   | 'mixed_kinds'
   | 'constant_required'
+  | 'gap'
   | 'aggregate_in_scalar_context'
   | 'not_aggregate'
   | 'invalid_grouping'

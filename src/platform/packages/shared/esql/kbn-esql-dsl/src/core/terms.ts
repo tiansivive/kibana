@@ -29,11 +29,21 @@ export type CoreExpr =
   | {
       readonly tag: 'call';
       readonly fn: string;
-      readonly args: readonly CoreExpr[];
+      readonly args: readonly CoreArg[];
       readonly type: Mono;
       /** The instances this call needs, by placeholder. The solution says which they are. */
       readonly instances: readonly Needed[];
     };
+
+/**
+ * An argument of a call, for the parameter at the same position: an expression, `undefined` for
+ * an optional parameter left out, or for a sequence a list of tuples, one per repetition.
+ */
+export type CoreArg = CoreExpr | undefined | readonly (readonly CoreExpr[])[];
+
+/** Every expression in the arguments of a call, in order. */
+export const expressionsOf = (args: readonly CoreArg[]): readonly CoreExpr[] =>
+  args.flat(2).flatMap((a) => (a === undefined ? [] : [a]));
 
 /** An instance of `protocol` a call needs, named by the placeholder that records which it is. */
 export interface Needed {

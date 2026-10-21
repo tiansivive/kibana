@@ -14,6 +14,7 @@ import {
   typecheck,
   and,
   avg,
+  caseOf,
   compile,
   count,
   desc,
@@ -196,6 +197,25 @@ describe('compile: expressions', () => {
     expect(printed(from('i').where((c) => gt(typed('long', c.a), lit.long(1))).ast)).toBe(
       'FROM i | WHERE a > 1::LONG'
     );
+  });
+
+  it('prints CASE with its branches in order and the last value', () => {
+    expect(
+      printed(
+        logs().eval('grade', (c) =>
+          caseOf(
+            [
+              [gt(c.risk, lit.double(90)), lit.str('high')],
+              [gt(c.risk, lit.double(50)), lit.str('medium')],
+            ],
+            lit.str('low')
+          )
+        ).ast
+      )
+    ).toBe('FROM logs-* | EVAL grade = CASE(risk > 90.0, "high", risk > 50.0, "medium", "low")');
+    expect(
+      printed(logs().eval('n', (c) => caseOf([[gt(c.risk, lit.double(1)), c.bytes]])).ast)
+    ).toBe('FROM logs-* | EVAL n = CASE(risk > 1.0, bytes)');
   });
 
   it('quotes names that are not plain identifiers', () => {

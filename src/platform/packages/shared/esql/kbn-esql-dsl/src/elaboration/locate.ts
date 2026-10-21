@@ -31,6 +31,11 @@ export const arg = (location: Location, index: number): Location => ({
   path: `${location.path}.args[${index}]`,
 });
 
+/** An element of a tuple, or a tuple of a sequence, in an argument. */
+export const item = (location: Location, index: number): Location => ({
+  path: `${location.path}[${index}]`,
+});
+
 export const sortKey = (location: Location, index: number): Location => ({
   path: `${location.path}.keys[${index}]`,
 });
@@ -49,9 +54,13 @@ export const schema = (name: string): Location => ({ path: `schema.${name}` });
 /** The type variable `name` of a function's type, at the call at `location`. */
 export const typeVariable = (location: Location, name: string): Meta => `${location.path}$${name}`;
 
-/** The type variable `name` as it stands for the further argument `index` of a variadic call. */
-export const restVariable = (location: Location, name: string, index: number): Meta =>
-  `${location.path}$${name}[${index}]`;
+/** The type variable `name` as it stands for the tuple `tuple` of the sequence that is parameter `param`. */
+export const itemVariable = (
+  location: Location,
+  name: string,
+  param: number,
+  tuple: number
+): Meta => `${location.path}$${name}[${param}][${tuple}]`;
 
 /** An expression or column that could not be typed. Nothing constrains it, so nothing built on it reports again. */
 export const untyped = (location: Location, name?: string): Meta =>
@@ -60,9 +69,13 @@ export const untyped = (location: Location, name?: string): Meta =>
 /** The instance the call at `location` needs for its `index`th required protocol. */
 export const instance = (location: Location, index: number): Hole => `${location.path}#${index}`;
 
-/** The instance the call at `location` needs for its `index`th required protocol, for the further argument `argument`. */
-export const restInstance = (location: Location, index: number, argument: number): Hole =>
-  `${location.path}#${index}[${argument}]`;
+/** The instance the call at `location` needs for its `index`th required protocol, for the tuple `tuple` of the sequence that is parameter `param`. */
+export const itemInstance = (
+  location: Location,
+  index: number,
+  param: number,
+  tuple: number
+): Hole => `${location.path}#${index}[${param}][${tuple}]`;
 
 /** The instance saying that a sort key has an order. */
 export const orderable = (location: Location): Hole => `${location.path}#orderable`;

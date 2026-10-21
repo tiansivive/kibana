@@ -18,6 +18,7 @@ import {
   add,
   and,
   avg,
+  caseOf,
   coalesce,
   concat,
   count,
@@ -234,22 +235,59 @@ assertType<Equal<SchemaOf<typeof sliced>['s'], 'keyword'>>();
 
 // A variadic function takes any number of further arguments.
 const merged = logs()
-  .eval('m', (c) => coalesce(c.bytes, lit.long(0), c.bytes))
-  .eval('t', (c) => concat(c['host.name'], lit.str('-'), c['host.name'], lit.str('!')));
+  .eval('m', (c) => coalesce(c.bytes, [lit.long(0), c.bytes]))
+  .eval('t', (c) => concat([c['host.name'], lit.str('-'), c['host.name'], lit.str('!')]));
 assertType<Equal<SchemaOf<typeof merged>['m'], 'long'>>();
 assertType<Equal<SchemaOf<typeof merged>['t'], 'keyword'>>();
 
 // An open column goes with any type.
-open.eval('c', (c) => coalesce(c.a, lit.str('unknown'), c.b));
+open.eval('c', (c) => coalesce(c.a, [lit.str('unknown'), c.b]));
 
 // @ts-expect-error every argument has the type of the first
-logs().eval('x', (c) => coalesce(c.bytes, c.risk));
+logs().eval('x', (c) => coalesce(c.bytes, [c.risk]));
 
 // @ts-expect-error concat takes at least two arguments
-logs().eval('x', (c) => concat(c['host.name']));
+logs().eval('x', (c) => concat([c['host.name']]));
 
 // @ts-expect-error an aggregate cannot be mixed with a per-row value
-logs().stats((c) => ({ x: coalesce(c.bytes, sum(c.bytes)) }));
+logs().stats((c) => ({ x: coalesce(c.bytes, [sum(c.bytes)]) }));
+
+// CASE takes branches, each a condition and a value, and an optional last value.
+const graded = logs().eval('grade', (c) =>
+  caseOf(
+    [
+      [gt(c.risk, lit.double(90)), lit.str('high')],
+      [gt(c.risk, lit.double(50)), lit.str('medium')],
+    ],
+    lit.str('low')
+  )
+);
+assertType<Equal<SchemaOf<typeof graded>['grade'], 'keyword'>>();
+
+// without a last value, the result is null when no condition holds
+const numbered = logs().eval('n', (c) => caseOf([[gt(c.risk, lit.double(1)), c.bytes]]));
+assertType<Equal<SchemaOf<typeof numbered>['n'], 'long'>>();
+
+// @ts-expect-error a condition is boolean
+logs().eval('x', (c) => caseOf([[c.bytes, lit.str('a')]]));
+
+// every value has the type of the first
+logs().eval('x', (c) =>
+  // @ts-expect-error a keyword value after a long one
+  caseOf([
+    [gt(c.risk, lit.double(1)), c.bytes],
+    [gt(c.risk, lit.double(2)), lit.str('a')],
+  ])
+);
+
+// @ts-expect-error the last value has the type of the others
+logs().eval('x', (c) => caseOf([[gt(c.risk, lit.double(1)), c.bytes]], lit.str('a')));
+
+// @ts-expect-error CASE needs a branch
+logs().eval('x', () => caseOf([]));
+
+// An open column goes with any type, in a condition or a value.
+open.eval('c', (c) => caseOf([[c.a, c.b]], lit.str('other')));
 
 // --- open sources: columns that earlier stages defined -----------------------------------------
 

@@ -7,19 +7,27 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import { makeLibrary } from '../core/polymorphism/library';
+import { fn, makeLibrary, many, requires, slot } from '../core/polymorphism/library';
 import { standardLibrary } from '../core/polymorphism/standard/standard';
+import { esqlType, varType } from '../core/type';
+import type { Requires } from '../core/type';
 import type { Kind } from '../vocabulary/kind';
 import { callKind } from './kinds';
 
 const location = { path: 'call' };
 
+/** Arguments are checked against the function's elements in order, cycling for a sequence. */
 const call = (name: string, ...kinds: Kind[]) => {
-  const fn = standardLibrary.functions.get(name);
-  if (!fn) {
+  const f = standardLibrary.functions.get(name);
+  if (!f) {
     throw new Error(`no function ${name}`);
   }
-  const { kind, emit } = callKind(fn, kinds, location);
+  const slots = f.type.params.flatMap((p) => p.slots);
+  const { kind, emit } = callKind(
+    f,
+    kinds.map((k, i) => ({ kind: k, expects: slots[i % slots.length]?.kind ?? 'k' })),
+    location
+  );
   return { kind, codes: emit.diagnostics.map((d) => d.code) };
 };
 
@@ -59,8 +67,8 @@ describe('callKind: results that are always per row', () => {
   });
 });
 
-describe('callKind: further arguments', () => {
-  it('gives the further arguments of a variadic function the kind of its rest', () => {
+describe('callKind: optional parameters and sequences', () => {
+  it('gives each element of a sequence the kind of its slot', () => {
     expect(call('coalesce', 'const', 'const', 'const')).toEqual({ kind: 'const', codes: [] });
     expect(call('coalesce', 'scalar', 'const', 'scalar')).toEqual({ kind: 'scalar', codes: [] });
     expect(call('coalesce', 'agg', 'const')).toEqual({ kind: 'agg', codes: [] });
@@ -74,31 +82,23 @@ describe('callKind: further arguments', () => {
   });
 });
 
-describe('kind signatures in a library', () => {
-  it('have as many parameters as the function has', () => {
-    standardLibrary.functions.forEach((fn) =>
-      expect([fn.name, fn.kinds.params.length]).toEqual([fn.name, fn.type.params.length])
+describe('parameters in a library', () => {
+  const u = varType('u');
+  const w = varType('w');
+  const library = (...needs: Requires[]) =>
+    makeLibrary(
+      [{ name: 'Related', arity: 2 }],
+      [],
+      [fn('f', [many(0, slot(u)), many(0, slot(w))], esqlType('keyword'), needs)]
+    );
+
+  it('are rejected when a protocol mentions the variables of two sequences', () => {
+    expect(() => library(requires('Related', u, w))).toThrow(
+      'f requires a protocol over the variables of two sequences'
     );
   });
 
-  it('are rejected when they disagree with the type about further arguments', () => {
-    const coalesce = standardLibrary.functions.get('coalesce');
-    expect(() =>
-      makeLibrary([], [], coalesce ? [{ ...coalesce, kinds: { params: ['k'], result: 'k' } }] : [])
-    ).toThrow('coalesce has a kind signature that disagrees with its type about further arguments');
-  });
-
-  it('are rejected when a function requires more parameters than it has', () => {
-    const round = standardLibrary.functions.get('round');
-    expect(() =>
-      makeLibrary([], [], round ? [{ ...round, type: { ...round.type, required: 3 } }] : [])
-    ).toThrow('round requires 3 of 2 parameters');
-  });
-
-  it('are rejected when the number of parameters differs', () => {
-    const sum = standardLibrary.functions.get('sum');
-    expect(() =>
-      makeLibrary([], [], sum ? [{ ...sum, kinds: { params: [], result: 'agg' } }] : [])
-    ).toThrow('sum has a kind signature with a different number of parameters');
+  it('accept a protocol over the variables of one sequence and a shared variable', () => {
+    expect(() => library(requires('Related', u, varType('r')))).not.toThrow();
   });
 });

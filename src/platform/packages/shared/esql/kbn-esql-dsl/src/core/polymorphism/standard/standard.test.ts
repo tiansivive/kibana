@@ -8,7 +8,7 @@
  */
 
 import { call, param } from '../../../dsl/expr';
-import type { AnyExpr } from '../../../dsl/expr';
+import type { CallArg } from '../../../dsl/expr';
 import { from } from '../../../dsl/query';
 import { ESQL_TYPES } from '../../../vocabulary/esql_type';
 import type { EsqlType } from '../../../vocabulary/esql_type';
@@ -29,22 +29,24 @@ const lookup = (table: Readonly<Record<string, unknown>>, ...keys: readonly stri
     table
   );
 
-const scalarResult = (
-  fn: string,
-  ...types: readonly EsqlType[]
-): readonly EsqlType[] | undefined => {
-  const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
-  const analysis = typecheck(from('i').eval('r', () => call<EsqlType, 'scalar'>(fn, ...args)).ast);
+/** An argument of a call: a type, or a list of them for a sequence. */
+type Arg = EsqlType | readonly EsqlType[];
+
+const argumentsOf = (args: readonly Arg[]): readonly CallArg[] =>
+  args.map((arg, i) =>
+    typeof arg === 'string' ? param(`p${i}`, arg) : arg.map((ty, j) => param(`p${i}_${j}`, ty))
+  );
+
+const scalarResult = (fn: string, ...args: readonly Arg[]): readonly EsqlType[] | undefined => {
+  const analysis = typecheck(
+    from('i').eval('r', () => call<EsqlType, 'scalar'>(fn, ...argumentsOf(args))).ast
+  );
   return analysis.ok ? analysis.output.columns.get('r') : undefined;
 };
 
-const aggregateResult = (
-  fn: string,
-  ...types: readonly EsqlType[]
-): readonly EsqlType[] | undefined => {
-  const args: AnyExpr[] = types.map((ty, i) => param(`p${i}`, ty));
+const aggregateResult = (fn: string, ...args: readonly Arg[]): readonly EsqlType[] | undefined => {
   const analysis = typecheck(
-    from('i').stats(() => ({ r: call<EsqlType, 'agg'>(fn, ...args) })).ast
+    from('i').stats(() => ({ r: call<EsqlType, 'agg'>(fn, ...argumentsOf(args)) })).ast
   );
   return analysis.ok ? analysis.output.columns.get('r') : undefined;
 };
@@ -158,22 +160,22 @@ describe('standard library: optional and further parameters', () => {
   it('concat accepts any number of text and keyword values in any order', () => {
     pairs.forEach(([a, b]) => {
       const accepted = textual.includes(a) && textual.includes(b);
-      expect(scalarResult('concat', a, b)).toEqual(accepted ? ['keyword'] : undefined);
+      expect(scalarResult('concat', [a, b])).toEqual(accepted ? ['keyword'] : undefined);
     });
-    expect(scalarResult('concat', 'text', 'keyword', 'text', 'keyword', 'text')).toEqual([
+    expect(scalarResult('concat', ['text', 'keyword', 'text', 'keyword', 'text'])).toEqual([
       'keyword',
     ]);
-    expect(scalarResult('concat', 'text', 'keyword', 'long')).toBeUndefined();
+    expect(scalarResult('concat', ['text', 'keyword', 'long'])).toBeUndefined();
   });
 
   it('coalesce gives every argument one type, normalised', () => {
     ESQL_TYPES.forEach((ty) => {
       const expected = [ty === 'text' ? 'keyword' : ty];
       expect(scalarResult('coalesce', ty)).toEqual(expected);
-      expect(scalarResult('coalesce', ty, ty, ty)).toEqual(expected);
+      expect(scalarResult('coalesce', ty, [ty, ty])).toEqual(expected);
     });
-    expect(scalarResult('coalesce', 'long', 'double')).toBeUndefined();
-    expect(scalarResult('coalesce', 'text', 'keyword', 'text')).toEqual(['keyword']);
+    expect(scalarResult('coalesce', 'long', ['double'])).toBeUndefined();
+    expect(scalarResult('coalesce', 'text', ['keyword', 'text'])).toEqual(['keyword']);
   });
 });
 

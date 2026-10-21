@@ -63,7 +63,7 @@ export const riskScoresQuery = ({
     .eval('rule_name_b64', (c) => toBase64(c.rule_name))
     .eval('category_b64', (c) => toBase64(c.category))
     .eval('input', (c) =>
-      concat(
+      concat([
         lit.str(' {"risk_score": "'),
         toKeyword(c.risk_score),
         lit.str('", "time": "'),
@@ -74,8 +74,8 @@ export const riskScoresQuery = ({
         c.category_b64,
         lit.str('", "id": "'),
         c.alert_id,
-        lit.str('" } ')
-      )
+        lit.str('" } '),
+      ])
     )
     .stats(
       (c) => ({

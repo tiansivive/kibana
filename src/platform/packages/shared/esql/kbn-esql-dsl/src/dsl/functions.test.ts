@@ -14,8 +14,8 @@ import * as dsl from './functions';
 /**
  * The TypeScript functions and the standard library are written separately, so this checks that
  * they describe the same functions. Each exported function builds a call of a library function,
- * takes as many parameters as the library function's type has, and passes on only the arguments
- * it is given. Every library function has an exported function.
+ * takes as many parameters as the library function's type has, and passes on an argument for each
+ * of them. Every library function has an exported function.
  */
 
 const notFunctions = ['typed'];
@@ -24,16 +24,25 @@ const exported = Object.entries(dsl)
   .filter(([name]) => !notFunctions.includes(name))
   .map(([name, f]) => ({ name, f }));
 
+const x = lit.int(0);
+
+/** Sequences are given as arrays, so these functions are not called with one expression per parameter. */
+const arguments_: Record<string, readonly unknown[]> = {
+  coalesce: [x, [x]],
+  concat: [[x, x]],
+  caseOf: [[[x, x]], x],
+};
+
 interface Called {
   readonly fn: string;
   readonly args: number;
 }
 
-const callWith = (f: (...args: never[]) => unknown, count: number): Called | undefined => {
+const callOf = (name: string, f: (...args: never[]) => unknown): Called | undefined => {
   const built: unknown = Reflect.apply(
     f,
     undefined,
-    Array.from({ length: count }, () => lit.int(0))
+    arguments_[name] ?? Array.from({ length: f.length }, () => x)
   );
   const node = typeof built === 'object' && built !== null && 'node' in built ? built.node : null;
   return typeof node === 'object' &&
@@ -49,19 +58,19 @@ const callWith = (f: (...args: never[]) => unknown, count: number): Called | und
 describe('the DSL functions agree with the standard library', () => {
   it.each(exported)(
     '$name builds a call of a library function with the same parameters',
-    ({ f }) => {
-      const called = callWith(f, f.length);
+    ({ name, f }) => {
+      const called = callOf(name, f);
       const library = called && standardLibrary.functions.get(called.fn);
       expect(library).toBeDefined();
-      if (library) {
+      if (library && called) {
         expect(f.length).toBe(library.type.params.length);
-        expect(callWith(f, library.type.required)?.args).toBe(library.type.required);
+        expect(called.args).toBe(library.type.params.length);
       }
     }
   );
 
   it('has an exported function for every library function', () => {
-    const called = exported.map(({ f }) => callWith(f, f.length)?.fn);
+    const called = exported.map(({ name, f }) => callOf(name, f)?.fn);
     expect([...standardLibrary.functions.keys()].filter((name) => !called.includes(name))).toEqual(
       []
     );

@@ -7,9 +7,8 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-import type { KindSignature, ParamKind } from '../../../vocabulary/kind';
 import { esqlType, varType } from '../../type';
-import type { Mono, Requires } from '../../type';
+import { fn, many, one, optional, requires, slot } from '../library';
 import type { LibraryFunction } from '../library';
 
 /**
@@ -30,109 +29,44 @@ const keyword = esqlType('keyword');
 const double = esqlType('double');
 const long = esqlType('long');
 const s = varType('s');
-const t = varType('t');
 const u = varType('u');
-
-const requires = (protocol: string, ...args: readonly Mono[]): Requires => ({ protocol, args });
-
-/** How many parameters must be given, and the type of any further arguments. */
-interface Arity {
-  readonly required?: number;
-  readonly rest?: Mono;
-}
-
-const fn = (
-  name: string,
-  params: readonly Mono[],
-  result: Mono,
-  needs: readonly Requires[],
-  kinds: KindSignature,
-  arity: Arity = {}
-): LibraryFunction => ({
-  name,
-  type: {
-    tag: 'poly',
-    requires: needs,
-    params,
-    required: arity.required ?? params.length,
-    result,
-    ...(arity.rest ? { rest: arity.rest } : {}),
-  },
-  kinds,
-});
-
-/** A scalar function takes any kind and is as aggregate as its arguments are. */
-const scalar = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'k' });
-
-const aggregate = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'agg' });
-
-/** A function that gives a per-row value even when all its arguments are constants. */
-const perRow = (...params: readonly ParamKind[]): KindSignature => ({ params, result: 'scalar' });
-
-/** The kind of every argument after the listed parameters. */
-const variadic = (kinds: KindSignature, rest: ParamKind): KindSignature => ({ ...kinds, rest });
+const v = varType('v');
 
 export const functions: readonly LibraryFunction[] = [
-  fn('abs', [a], a, [requires('Numeric', a)], scalar('k')),
-  fn('round', [a, b], a, [requires('Numeric', a), requires('SignedNumeric', b)], scalar('k', 'k'), {
-    required: 1,
-  }),
-  fn(
-    'substring',
-    [s, integer, integer],
-    keyword,
-    [requires('Norm', s, keyword)],
-    scalar('k', 'k', 'k'),
-    {
-      required: 2,
-    }
-  ),
+  fn('abs', [one(a)], a, [requires('Numeric', a)]),
+  fn('round', [one(a), optional(b)], a, [requires('Numeric', a), requires('SignedNumeric', b)]),
+  fn('substring', [one(s), one(integer), optional(integer)], keyword, [
+    requires('Norm', s, keyword),
+  ]),
   // every argument has the same normal form, so `text` and `keyword` can be mixed
-  fn(
-    'coalesce',
-    [a],
-    b,
-    [requires('Norm', a, b), requires('Norm', u, b)],
-    variadic(scalar('k'), 'k'),
-    {
-      rest: u,
-    }
-  ),
-  fn(
-    'concat',
-    [s, t],
-    keyword,
-    [requires('Norm', s, keyword), requires('Norm', t, keyword), requires('Norm', u, keyword)],
-    variadic(scalar('k', 'k'), 'k'),
-    { rest: u }
-  ),
-  fn('is_null', [a], boolean, [], scalar('k')),
-  fn('is_not_null', [a], boolean, [], scalar('k')),
+  fn('coalesce', [one(a), many(0, slot(u))], b, [requires('Norm', a, b), requires('Norm', u, b)]),
+  fn('concat', [many(2, slot(u))], keyword, [requires('Norm', u, keyword)]),
+  // each condition is followed by its value, and a last value is used when no condition holds
+  fn('case', [many(1, slot(boolean), slot(u)), optional(v)], b, [
+    requires('Norm', u, b),
+    requires('Norm', v, b),
+  ]),
+  fn('is_null', [one(a)], boolean, []),
+  fn('is_not_null', [one(a)], boolean, []),
   // `x::keyword` is TO_STRING, which takes every type
-  fn('to_string', [a], keyword, [], scalar('k')),
-  fn('to_base64', [s], keyword, [requires('Norm', s, keyword)], scalar('k')),
-  fn('kql', [s], boolean, [requires('Norm', s, keyword)], perRow('const')),
-  fn(
-    'mv_pseries_weighted_sum',
-    [a, double],
-    double,
-    [requires('Numeric', a)],
-    scalar('k', 'const')
-  ),
-  fn('add', [a, b], c, [requires('Arith', a, b, c)], scalar('k', 'k')),
-  fn('greater_than', [a, b], boolean, [requires('Comparable', a, b)], scalar('k', 'k')),
-  fn('equals', [a, b], boolean, [requires('Equatable', a, b)], scalar('k', 'k')),
-  fn('and', [boolean, boolean], boolean, [], scalar('k', 'k')),
-  fn('or', [boolean, boolean], boolean, [], scalar('k', 'k')),
-  fn('avg', [a], double, [requires('SignedNumeric', a)], aggregate('scalar')),
-  fn('sum', [a], b, [requires('SignedNumeric', a), requires('Wide', a, b)], aggregate('scalar')),
-  fn('max', [a], b, [requires('Orderable', a), requires('Norm', a, b)], aggregate('scalar')),
-  fn('count', [a], long, [], aggregate('scalar')),
+  fn('to_string', [one(a)], keyword, []),
+  fn('to_base64', [one(s)], keyword, [requires('Norm', s, keyword)]),
+  fn('kql', [one(s, 'const')], boolean, [requires('Norm', s, keyword)], 'scalar'),
+  fn('mv_pseries_weighted_sum', [one(a), one(double, 'const')], double, [requires('Numeric', a)]),
+  fn('add', [one(a), one(b)], c, [requires('Arith', a, b, c)]),
+  fn('greater_than', [one(a), one(b)], boolean, [requires('Comparable', a, b)]),
+  fn('equals', [one(a), one(b)], boolean, [requires('Equatable', a, b)]),
+  fn('and', [one(boolean), one(boolean)], boolean, []),
+  fn('or', [one(boolean), one(boolean)], boolean, []),
+  fn('avg', [one(a, 'scalar')], double, [requires('SignedNumeric', a)], 'agg'),
+  fn('sum', [one(a, 'scalar')], b, [requires('SignedNumeric', a), requires('Wide', a, b)], 'agg'),
+  fn('max', [one(a, 'scalar')], b, [requires('Orderable', a), requires('Norm', a, b)], 'agg'),
+  fn('count', [one(a, 'scalar')], long, [], 'agg'),
   fn(
     'top',
-    [a, integer, keyword],
+    [one(a, 'scalar'), one(integer, 'const'), one(keyword, 'const')],
     b,
     [requires('Orderable', a), requires('Norm', a, b)],
-    aggregate('scalar', 'const', 'const')
+    'agg'
   ),
 ];
