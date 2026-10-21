@@ -8,7 +8,7 @@
  */
 
 /**
- * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js` from the
+ * A REPL with the DSL loaded: `node src/platform/packages/shared/esql/kbn-esql-dsl/repl.js` from the
  * repository root. Every export of the package is in scope, and so is `riskScoresQuery`, the risk
  * score calculation's query written with the DSL (`src/examples/risk_scores.ts`), and an expression prints as the plain
  * JS value it is. `:h` lists the commands, which show a query the way the playground does (`:q`),
@@ -125,6 +125,8 @@ const first = (...entries) => entries.find(([value]) => value !== undefined) ?? 
 
 // What Kibana's own config says about the cluster: `elasticsearch.hosts` and its credentials.
 const kibanaConfig = (files) => {
+  // The REPL is a development tool run from a terminal, so it may read Kibana's server config.
+  // eslint-disable-next-line @kbn/imports/no_boundary_crossing
   const { getConfigFromFiles } = require('@kbn/config');
   const existing = files.filter((file) => fs.existsSync(file));
   const { elasticsearch = {} } = existing.length > 0 ? getConfigFromFiles(existing) : {};

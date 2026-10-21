@@ -12,8 +12,8 @@
  * example, the ES|QL it compiles to, whether it checks, the elaborated Core with a type on every
  * expression, and what is known about the columns it reads. Edit the examples and run:
  *
- *   node scripts/jest.js --config src/platform/packages/shared/esql/kbn_esql_dsl/jest.config.js \
- *     src/platform/packages/shared/esql/kbn_esql_dsl/src/playground.test.ts --runInBand
+ *   node scripts/jest.js --config src/platform/packages/shared/esql/kbn-esql-dsl/jest.config.js \
+ *     src/platform/packages/shared/esql/kbn-esql-dsl/src/playground.test.ts --runInBand
  */
 import {
   add,

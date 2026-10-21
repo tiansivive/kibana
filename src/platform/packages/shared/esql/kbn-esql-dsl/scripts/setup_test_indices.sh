@@ -20,7 +20,7 @@
 #
 # Then, from the repository root:
 #
-#   node src/platform/packages/shared/esql/kbn_esql_dsl/repl.js
+#   node src/platform/packages/shared/esql/kbn-esql-dsl/repl.js
 #
 #   :connect
 #   :caps dsl-logs-a,dsl-logs-b
