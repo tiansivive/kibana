@@ -123,8 +123,17 @@ describe('Print.fn: optional and further arguments', () => {
         '         :: (k, ...k) -> k',
       ].join('\n')
     );
-    expect(show('concat').split('\n')[0]).toBe(
-      'concat :: forall s t u. (Norm s ES.keyword, Norm t ES.keyword, Norm u ES.keyword) => (s, t, ...u) -> ES.keyword'
+    expect(show('concat')).toBe(
+      [
+        'concat :: forall u. Norm u ES.keyword => (...u) -> ES.keyword',
+        '       :: (...k) -> k',
+      ].join('\n')
+    );
+    expect(show('case')).toBe(
+      [
+        'case :: forall u v b. (Norm u b, Norm v b) => (...(ES.boolean, u), v?) -> b',
+        '     :: (...(k, k), k?) -> k',
+      ].join('\n')
     );
   });
 });

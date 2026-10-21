@@ -9,7 +9,7 @@
 
 import type { EsqlType } from '../vocabulary/esql_type';
 import type { Kind } from '../vocabulary/kind';
-import type { ExprNode } from '../surface/expr';
+import type { ArgNode, ExprNode } from '../surface/expr';
 import type { ExprType } from './inferred';
 
 export declare const exprBrand: unique symbol;
@@ -44,10 +44,28 @@ export const lit = {
 export const param = <T extends EsqlType>(name: string, ty: T): Expr<T, 'const'> =>
   mk({ tag: 'param', name, ty });
 
+/**
+ * A call of a library function. The arguments are for its parameters in order: an expression, or
+ * `undefined` for an optional parameter left out, or for a sequence a list of expressions, or of
+ * lists of expressions where each repetition has several. A trailing optional parameter can be
+ * left off.
+ */
 export const call = <T extends ExprType, K extends Kind>(
   fn: string,
-  ...args: readonly AnyExpr[]
-): Expr<T, K> => mk({ tag: 'call', fn, args: args.map((a) => a.node) });
+  ...args: readonly CallArg[]
+): Expr<T, K> => mk({ tag: 'call', fn, args: args.map(argumentNode) });
+
+export type CallArg = AnyExpr | undefined | readonly (AnyExpr | readonly AnyExpr[])[];
+
+const argumentNode = (arg: CallArg): ArgNode =>
+  arg === undefined
+    ? undefined
+    : isExpression(arg)
+    ? arg.node
+    : arg.map((item) => (isExpression(item) ? item.node : item.map((e) => e.node)));
+
+const isExpression = (a: unknown): a is AnyExpr =>
+  typeof a === 'object' && a !== null && 'node' in a;
 
 export const mk = <T extends ExprType, K extends Kind>(node: ExprNode): Expr<T, K> => ({ node });
 

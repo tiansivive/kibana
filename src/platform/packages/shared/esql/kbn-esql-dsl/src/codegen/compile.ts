@@ -10,6 +10,7 @@
 import { Builder, ComposerQuery } from '@elastic/esql';
 import type { ESQLAstCommand, ESQLAstExpression, ESQLOrderExpression } from '@elastic/esql';
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
+import { expressionsOf } from '../core/terms';
 import type { EsqlType } from '../vocabulary/esql_type';
 
 /**
@@ -129,7 +130,8 @@ const expression = (e: CoreExpr): ESQLAstExpression => {
     case 'call': {
       const operator = OPERATORS.get(e.fn);
       const postfix = POSTFIX.get(e.fn);
-      const [left, right] = e.args;
+      const args = expressionsOf(e.args);
+      const [left, right] = args;
       if (postfix !== undefined && left !== undefined) {
         return Builder.expression.func.postfix(postfix, expression(left));
       }
@@ -140,7 +142,7 @@ const expression = (e: CoreExpr): ESQLAstExpression => {
           ])
         : Builder.expression.func.call(
             e.fn,
-            e.args.map((arg) => expression(arg))
+            args.map((arg) => expression(arg))
           );
     }
   }

@@ -120,7 +120,7 @@ export const round = <
 >(
   e: Expr<T, K>,
   decimals?: Expr<keyof typeof AVG | Inferred, KD>
-): Expr<T, Join<K, KD>> => call('round', e, ...(decimals ? [decimals] : []));
+): Expr<T, Join<K, KD>> => call('round', e, decimals);
 
 export const substring = <
   T extends keyof typeof STRING | Inferred,
@@ -131,8 +131,7 @@ export const substring = <
   s: Expr<T, K>,
   start: Expr<'integer', KS>,
   length?: Expr<'integer', KL>
-): Expr<Lookup<typeof STRING, T>, Join<Join<K, KS>, KL>> =>
-  call('substring', s, start, ...(length ? [length] : []));
+): Expr<Lookup<typeof STRING, T>, Join<Join<K, KS>, KL>> => call('substring', s, start, length);
 
 /** Every argument has the type of the first, where `text` and `keyword` count as the same. */
 export const coalesce = <
@@ -141,19 +140,34 @@ export const coalesce = <
   R extends readonly CompatibleWith<K>[]
 >(
   first: Expr<T, K>,
-  ...rest: Rest<Alike<T>, R>
-): Expr<NormalForm<T>, JoinAll<K, R>> => call('coalesce', first, ...rest);
+  rest?: Rest<Alike<T>, R>
+): Expr<NormalForm<T>, JoinAll<K, R>> => call('coalesce', first, rest);
 
-/** Each argument is `keyword` or `text`, in any order. */
+/** Each argument is `keyword` or `text`, in any order, and there are at least two. */
 export const concat = <
   KA extends Operand,
   KB extends CompatibleWith<KA>,
   R extends readonly CompatibleWith<Join<KA, KB>>[]
 >(
-  first: Expr<Text, KA>,
-  second: Expr<Text, KB>,
-  ...rest: Rest<Text, R>
-): Expr<'keyword', JoinAll<Join<KA, KB>, R>> => call('concat', first, second, ...rest);
+  items: readonly [Expr<Text, KA>, Expr<Text, KB>, ...Rest<Text, R>]
+): Expr<'keyword', JoinAll<Join<KA, KB>, R>> => call('concat', items);
+
+/**
+ * `CASE`: each branch is a condition and the value used when it holds, and `otherwise` is used
+ * when none does. Every value has the type of the first, where `text` and `keyword` count as the
+ * same, and a call with no `otherwise` is null when no condition holds.
+ */
+export const caseOf = <
+  T extends EsqlType | Inferred,
+  KC extends Operand,
+  KV extends CompatibleWith<KC>,
+  R extends readonly Branch<T, Join<KC, KV>>[],
+  KE extends CompatibleWith<Join<KC, KV>> | 'const' = 'const'
+>(
+  branches: readonly [readonly [Expr<Condition, KC>, Expr<T, KV>], ...R],
+  otherwise?: Expr<Alike<T>, KE>
+): Expr<NormalForm<T>, JoinAll<Join<KC, KV>, [...BranchKinds<R>, KE]>> =>
+  call('case', branches, otherwise);
 
 export const isNull = <K extends Operand>(e: Expr<ExprType, K>): Expr<'boolean', K> =>
   call('is_null', e);
@@ -259,6 +273,20 @@ type Condition = 'boolean' | Inferred;
 type Alike<T> = T extends Inferred
   ? ExprType
   : (NormalForm<T> extends 'keyword' ? 'keyword' | 'text' : T) | Inferred;
+
+/** A condition and a value of the same type as the others, in kinds that combine with `K`. */
+type Branch<T extends ExprType, K extends Operand> = readonly [
+  Expr<Condition, CompatibleWith<K>>,
+  Expr<Alike<T>, CompatibleWith<K>>
+];
+
+/** The kinds of the conditions and values of branches, in order. */
+type BranchKinds<R extends readonly (readonly [AnyExpr, AnyExpr])[]> = R extends readonly [
+  readonly [Expr<ExprType, infer KC extends Operand>, Expr<ExprType, infer KV extends Operand>],
+  ...infer Tail extends readonly (readonly [AnyExpr, AnyExpr])[]
+]
+  ? [KC, KV, ...BranchKinds<Tail>]
+  : [];
 
 type NormalForm<T> = T extends 'text' ? 'keyword' : T;
 

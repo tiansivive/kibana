@@ -7,16 +7,19 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
+import * as Print from '../core/print';
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
-import { esqlType, metaType } from '../core/type';
-import type { Mono, Poly } from '../core/type';
+import { esqlType, metaType, ownVariables, variableNames } from '../core/type';
+import type { Mono, Slot } from '../core/type';
 import type { Library } from '../core/polymorphism/library';
 import type { Location } from '../diagnostics/location';
 import type { EsqlType } from '../vocabulary/esql_type';
 import { withEntry } from '../utils/immutable';
 import type { Kind } from '../vocabulary/kind';
-import type { ExprNode } from '../surface/expr';
+import { isExpr } from '../surface/expr';
+import type { ArgNode, ExprNode } from '../surface/expr';
 import type { CommandNode, QueryAst } from '../surface/query';
+import { gaps, omittedVariables, place } from './arguments';
 import { callKind, expectAggregate, expectScalar, rejectAggregateKey } from './kinds';
 import * as Locate from './locate';
 import { closedRow, define, demand, drop, openRow, schemaRow } from './row';
@@ -252,8 +255,9 @@ const call = (
   location: Location
 ): Typed => {
   const fn = library.functions.get(node.fn);
+  // A call that cannot be checked against a type still elaborates its arguments, for what they report.
   const unresolved = (emit: Emit): Typed => {
-    const args = node.args.map((a, i) => synth(library, row, a, Locate.arg(location, i)));
+    const args = located(node.args, location).map((e) => synth(library, row, e.node, e.at));
     return {
       core: {
         tag: 'call',
@@ -269,98 +273,124 @@ const call = (
   if (!fn) {
     return unresolved(problem('unknown_function', `unknown function ${node.fn}`, location));
   }
-  const { params, required, rest } = fn.type;
-  if (node.args.length < required || (rest === undefined && node.args.length > params.length)) {
-    return unresolved(
-      problem('arity', `${fn.name} takes ${arityOf(fn.type)}, got ${node.args.length}`, location)
-    );
+  const placed = place(fn.type, node.args);
+  if (!placed) {
+    return unresolved(problem('arity', `${fn.name} takes ${Print.signature(fn.type)}`, location));
   }
   // The function's type is instantiated, and each argument is checked against its parameter.
   const own = ownVariables(fn.type);
   const shared = instantiate(location);
-  const further = (i: number) => instantiate(location, i, own);
-  const args = node.args.map((a, i) => {
-    const at = Locate.arg(location, i);
-    const parameter = i < params.length ? shared(params[i]) : rest && further(i)(rest);
-    return parameter
-      ? check(library, row, a, parameter, at, `${fn.name} needs`)
-      : synth(library, row, a, at);
+  const elementOf = (arg: ExprNode, slot: Slot, at: Location, tuple?: Tuple) => ({
+    typed: check(
+      library,
+      row,
+      arg,
+      instantiate(location, own, tuple)(slot.type),
+      at,
+      `${fn.name} needs`
+    ),
+    slot,
   });
-  const omitted = omittedVariables(fn.type, args.length);
-  const needed = fn.type.requires.flatMap((r, k) =>
-    r.args.some((arg) => arg.tag === 'var' && omitted.has(arg.name))
+  const given = placed.map((p, i) => {
+    const at = Locate.arg(location, i);
+    switch (p.tag) {
+      case 'one':
+      case 'optional': {
+        const e = p.node && elementOf(p.node, p.slots[0], at);
+        return { core: e?.typed.core, elements: e ? [e] : [] };
+      }
+      case 'many': {
+        const items = p.items.map((tuple, k) =>
+          tuple.map((arg, j) =>
+            elementOf(arg, p.slots[j], Locate.item(Locate.item(at, k), j), { param: i, item: k })
+          )
+        );
+        return {
+          core: items.map((tuple) => tuple.map((e) => e.typed.core)),
+          elements: items.flat(),
+        };
+      }
+    }
+  });
+  const elements = given.flatMap((g) => g.elements);
+  const omitted = omittedVariables(placed, fn.type.result);
+  const needed = fn.type.requires.flatMap((r, k) => {
+    const names = variableNames(r.args);
+    const param = names.flatMap((name) => own.get(name) ?? [])[0];
+    const sequence = param === undefined ? undefined : placed[param];
+    return names.some((name) => omitted.has(name))
       ? []
-      : r.args.some((arg) => arg.tag === 'var' && own.has(arg.name))
-      ? args
-          .map((_, i) => i)
-          .filter((i) => i >= params.length)
-          .map((i) => ({
-            hole: Locate.restInstance(location, k, i),
-            protocol: r.protocol,
-            args: r.args.map(further(i)),
-          }))
-      : [{ hole: Locate.instance(location, k), protocol: r.protocol, args: r.args.map(shared) }]
-  );
+      : param === undefined
+      ? [{ hole: Locate.instance(location, k), protocol: r.protocol, args: r.args.map(shared) }]
+      : (sequence?.tag === 'many' ? sequence.items : []).map((_, item) => ({
+          hole: Locate.itemInstance(location, k, param, item),
+          protocol: r.protocol,
+          args: r.args.map(instantiate(location, own, { param, item })),
+        }));
+  });
   const { kind, emit: kindEmit } = callKind(
     fn,
-    args.map((a) => a.kind),
+    elements.map((e) => ({ kind: e.typed.kind, expects: e.slot.kind })),
     location
   );
   return {
     core: {
       tag: 'call',
       fn: node.fn,
-      args: args.map((a) => a.core),
+      args: given.map((g) => g.core),
       type: shared(fn.type.result),
       instances: needed.map(({ hole, protocol }) => ({ hole, protocol })),
     },
     kind,
     emit: merge(
-      ...args.map((a) => a.emit),
+      ...elements.map((e) => e.typed.emit),
       kindEmit,
+      ...gaps(placed).map((i) =>
+        problem(
+          'gap',
+          `${fn.name} is given argument ${i + 1} after an optional argument that is left out`,
+          Locate.arg(location, i)
+        )
+      ),
       constrain(...needed.map((n) => wanted(n.hole, n.protocol, n.args, location)))
     ),
   };
 };
 
-/** The number of arguments a function takes, as it reads in a diagnostic. */
-const arityOf = ({ params, required, rest }: Poly): string =>
-  rest !== undefined
-    ? `at least ${plural(required)}`
-    : required === params.length
-    ? plural(required)
-    : `${required} to ${plural(params.length)}`;
-
-const plural = (n: number): string => `${n} argument${n === 1 ? '' : 's'}`;
-
-/** Variables that only the optional parameters left out of a call mention, which need nothing. */
-const omittedVariables = ({ params, result, rest }: Poly, given: number): ReadonlySet<string> => {
-  const named = (types: readonly Mono[]) => types.flatMap((t) => (t.tag === 'var' ? [t.name] : []));
-  const used = new Set(named([...params.slice(0, given), result, ...(rest ? [rest] : [])]));
-  return new Set(named(params.slice(given)).filter((name) => !used.has(name)));
-};
+/** The tuple `item` of the sequence that is parameter `param`. */
+interface Tuple {
+  readonly param: number;
+  readonly item: number;
+}
 
 /**
- * Variables that occur only in the further arguments of a variadic function. Each further
- * argument has its own, so `concat` takes `text` and `keyword` in any order.
- */
-const ownVariables = ({ params, result, rest }: Poly): ReadonlySet<string> => {
-  const named = (types: readonly Mono[]) => types.flatMap((t) => (t.tag === 'var' ? [t.name] : []));
-  const shared = new Set(named([...params, result]));
-  return new Set(named(rest ? [rest] : []).filter((name) => !shared.has(name)));
-};
-
-/**
- * Each type variable of a function's type becomes a meta named for the call it is at. For the
- * further argument `index` of a variadic call, the variables in `own` are that argument's.
+ * Each type variable of a function's type becomes a meta named for the call it is at. Inside a
+ * tuple of a sequence, the variables that are the sequence's own are that tuple's.
  */
 const instantiate =
-  (location: Location, index?: number, own: ReadonlySet<string> = new Set()) =>
+  (location: Location, own: ReadonlyMap<string, number> = new Map(), tuple?: Tuple) =>
   (term: Mono): Mono =>
     term.tag !== 'var'
       ? term
       : metaType(
-          index !== undefined && own.has(term.name)
-            ? Locate.restVariable(location, term.name, index)
+          tuple && own.get(term.name) === tuple.param
+            ? Locate.itemVariable(location, term.name, tuple.param, tuple.item)
             : Locate.typeVariable(location, term.name)
         );
+
+/** The expressions in the arguments of a call, each with its location in the AST. */
+const located = (
+  args: readonly ArgNode[],
+  location: Location
+): readonly { readonly node: ExprNode; readonly at: Location }[] =>
+  args.flatMap((arg, i) => within(arg, Locate.arg(location, i)));
+
+const within = (
+  arg: ArgNode,
+  at: Location
+): readonly { readonly node: ExprNode; readonly at: Location }[] =>
+  arg === undefined
+    ? []
+    : isExpr(arg)
+    ? [{ node: arg, at }]
+    : arg.flatMap((item, i) => within(item, Locate.item(at, i)));

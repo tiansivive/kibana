@@ -9,6 +9,7 @@
 
 import { add, typecheck, from, gt, lit, param, resolve, sum, typed } from '..';
 import type { CoreExpr } from '..';
+import { expressionsOf } from './terms';
 
 const firstExpr = (a: ReturnType<typeof typecheck>): CoreExpr => {
   const cmd = a.core.pipe[0];
@@ -31,7 +32,7 @@ describe('the Core, with types looked up in the solution on demand', () => {
     expect(expr.type).toEqual({ tag: 'meta', meta: 'pipe[0].eval.expr$c' });
     expect(resolve(a.solution, expr.type)).toEqual({ tag: 'esql', esql: 'long' });
     if (expr.tag === 'call') {
-      expect(expr.args.map((x) => resolve(a.solution, x.type))).toEqual([
+      expect(expressionsOf(expr.args).map((x) => resolve(a.solution, x.type))).toEqual([
         { tag: 'esql', esql: 'integer' },
         { tag: 'esql', esql: 'long' },
       ]);
@@ -55,7 +56,7 @@ describe('the Core, with types looked up in the solution on demand', () => {
 
     const column = (a: ReturnType<typeof typecheck>) => {
       const expr = firstExpr(a);
-      return expr.tag === 'call' ? expr.args[0].type : undefined;
+      return expr.tag === 'call' ? expressionsOf(expr.args)[0]?.type : undefined;
     };
     expect(column(open)).toEqual({ tag: 'meta', meta: 'src:a' });
     expect(resolve(open.solution, { tag: 'meta', meta: 'src:a' })).toEqual({

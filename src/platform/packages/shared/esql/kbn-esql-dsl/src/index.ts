@@ -19,6 +19,7 @@ export {
   add,
   and,
   avg,
+  caseOf,
   coalesce,
   concat,
   count,

@@ -8,14 +8,15 @@
  */
 
 import type { EsqlType } from '../vocabulary/esql_type';
-import type { KindSignature } from '../vocabulary/kind';
 import { resolve } from '../elaboration/solve/solution';
 import type { Solution } from '../elaboration/solve/solution';
 import type { Principal } from '../elaboration/solve/principal';
 import { instancesOf, instancesWith } from './polymorphism/library';
 import type { Library, LibraryFunction } from './polymorphism/library';
 import type { Core, CoreCommand, CoreExpr } from './terms';
-import type { Meta, Mono, Poly, Requires, Type } from './type';
+import { expressionsOf } from './terms';
+import { typesOf, variableNames } from './type';
+import type { Meta, Mono, Param, Poly, Requires, Slot, Type } from './type';
 
 /**
  * Everything that shows types or the Core as text, imported as `import * as Print from`.
@@ -68,7 +69,7 @@ export const fn = (library: Library, f: LibraryFunction, options: FnOptions = {}
   const indent = ' '.repeat(f.name.length);
   return [
     `${f.name} :: ${ty(f.type, names)}`,
-    ...(kinds ? [`${indent} :: ${kindSignature(f.kinds, f.type.required)}`] : []),
+    ...(kinds ? [`${indent} :: ${kindSignature(f.type)}`] : []),
     ...(dependencies ? requiredDependencies(library, f.type.requires, names, indent) : []),
   ].join('\n');
 };
@@ -156,22 +157,18 @@ const mono = (type: Mono, names: Names): string =>
     : names.meta?.(type.meta) ?? '?';
 
 const poly = (type: Poly, names: Names): string => {
-  const variables = [
-    ...type.params,
-    ...(type.rest ? [type.rest] : []),
+  const variables = variableNames([
+    ...type.params.flatMap(typesOf),
     type.result,
     ...type.requires.flatMap((r) => r.args),
-  ]
-    .flatMap((t) => (t.tag === 'var' ? [t.name] : []))
-    .filter((name, i, all) => all.indexOf(name) === i);
+  ]).filter((name, i, all) => all.indexOf(name) === i);
   return [
     variables.length > 0 ? `forall ${variables.join(' ')}. ` : '',
     context(type.requires, names),
-    `${parameters(
-      type.params.map((p) => mono(p, names)),
-      type.required,
-      type.rest && mono(type.rest, names)
-    )} -> ${mono(type.result, names)}`,
+    `${parameterList(type.params, (slot) => mono(slot.type, names))} -> ${mono(
+      type.result,
+      names
+    )}`,
   ].join('');
 };
 
@@ -207,19 +204,34 @@ const instanceRow = (instance: readonly EsqlType[], determinedBy?: readonly numb
     : shown(instance);
 };
 
-const kindSignature = (kinds: KindSignature, required: number): string =>
-  `${parameters(kinds.params, required, kinds.rest)} -> ${kinds.result}`;
+/** The kinds of a function's parameters and of its result, in the shape of its type. */
+const kindSignature = (type: Poly): string =>
+  `${parameterList(type.params, (slot) => slot.kind)} -> ${type.kind}`;
 
-/** Parameters as they read in a type: optional ones end in `?` and further arguments in `...`. */
-const parameters = (shown: readonly string[], required = shown.length, rest?: string): string => {
-  const items = [
-    ...shown.map((p, i) => (i < required ? p : `${p}?`)),
-    ...(rest === undefined ? [] : [`...${rest}`]),
-  ];
-  return items.length === 1 && shown.length === required && rest === undefined
-    ? items[0]
-    : `(${items.join(', ')})`;
+/** The parameters of a function as a call reads them, for a diagnostic: `(a, b?)`. */
+export const signature = (type: Poly, names: Names = {}): string =>
+  `(${parameterItems(type.params, (slot) => mono(slot.type, names)).join(', ')})`;
+
+/** Parameters as they read in a type, without parentheses when there is one required parameter. */
+const parameterList = (params: readonly Param[], show: (slot: Slot) => string): string => {
+  const items = parameterItems(params, show);
+  return items.length === 1 && params[0]?.tag === 'one' ? items[0] : `(${items.join(', ')})`;
 };
+
+/**
+ * Each parameter as it reads in a type: an optional one ends in `?`, a sequence starts with
+ * `...`, and a repetition of several elements is a tuple.
+ */
+const parameterItems = (params: readonly Param[], show: (slot: Slot) => string): string[] =>
+  params.map((p) => {
+    const shown = p.slots.map(show);
+    const element = shown.length === 1 ? shown[0] : `(${shown.join(', ')})`;
+    return p.tag === 'one' ? element : p.tag === 'optional' ? `${element}?` : `...${element}`;
+  });
+
+/** Types in a row, as they read in a list of parameters. */
+const parameters = (shown: readonly string[]): string =>
+  shown.length === 1 ? shown[0] : `(${shown.join(', ')})`;
 
 const distinctMetas = (types: readonly Mono[]): readonly Meta[] =>
   types
@@ -273,7 +285,7 @@ const expression = (e: CoreExpr, depth: number, solution: Solution, options: Opt
     case 'call':
       return [
         `${pad}${e.fn} : ${type}${instances(e, solution)}`,
-        ...e.args.flatMap((a) => expression(a, depth + 1, solution, options)),
+        ...expressionsOf(e.args).flatMap((a) => expression(a, depth + 1, solution, options)),
       ];
   }
 };

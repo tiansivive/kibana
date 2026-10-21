@@ -9,29 +9,34 @@
 
 import { diagnostic } from '../diagnostics/diagnostic';
 import type { Location } from '../diagnostics/location';
-import type { Kind } from '../vocabulary/kind';
+import type { Kind, ParamKind } from '../vocabulary/kind';
 import type { LibraryFunction } from '../core/polymorphism/library';
 import { none, problem, report } from './solve/constraints';
 import type { Emit } from './solve/constraints';
 
 /**
  * Kinds are checked beside the types and not through them. Every expression has a kind that is
- * known from its parts, so nothing is inferred: a function's kind signature says what each
- * argument may be and what the call is, and these functions apply it.
+ * known from its parts, so nothing is inferred: the kinds a function declares for its parameters
+ * and its result say what each argument may be and what the call is, and these functions apply them.
  */
+
+/** An argument's kind, and the kind its parameter element allows. */
+export interface Passed {
+  readonly kind: Kind;
+  readonly expects: ParamKind;
+}
 
 /** The kind of a call and the problems with its arguments' kinds. */
 export const callKind = (
   fn: LibraryFunction,
-  kinds: readonly Kind[],
+  passed: readonly Passed[],
   location: Location
 ): { kind: Kind; emit: Emit } => {
-  const { params, result, rest } = fn.kinds;
-  const kindOf = (i: number) => params[i] ?? rest;
-  const argumentsFor = (wanted: string) => kinds.filter((_, i) => kindOf(i) === wanted);
+  const argumentsFor = (wanted: ParamKind) =>
+    passed.filter((p) => p.expects === wanted).map((p) => p.kind);
   const open = argumentsFor('k');
-  const constants = kinds.flatMap((kind, i) =>
-    kindOf(i) === 'const' && kind !== 'const'
+  const constants = passed.flatMap((p, i) =>
+    p.expects === 'const' && p.kind !== 'const'
       ? [
           diagnostic(
             'constant_required',
@@ -55,7 +60,7 @@ export const callKind = (
       ? [diagnostic('mixed_kinds', `${fn.name} mixes an aggregate with a per-row value`, location)]
       : [];
   return {
-    kind: result === 'k' ? joined(open) : result,
+    kind: fn.type.kind === 'k' ? joined(open) : fn.type.kind,
     emit: report(...constants, ...nested, ...mixed),
   };
 };
