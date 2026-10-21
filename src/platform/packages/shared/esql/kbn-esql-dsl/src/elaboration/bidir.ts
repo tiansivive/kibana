@@ -9,7 +9,7 @@
 
 import * as Print from '../core/print';
 import type { Core, CoreCommand, CoreExpr } from '../core/terms';
-import { esqlType, metaType, ownVariables, variableNames } from '../core/type';
+import { esqlType, metaType, perElementVariables, variableNames } from '../core/type';
 import type { Mono, Slot } from '../core/type';
 import type { Library } from '../core/polymorphism/library';
 import type { Location } from '../diagnostics/location';
@@ -19,7 +19,7 @@ import type { Kind } from '../vocabulary/kind';
 import { isExpr } from '../surface/expr';
 import type { ArgNode, ExprNode } from '../surface/expr';
 import type { CommandNode, QueryAst } from '../surface/query';
-import { gaps, omittedVariables, place } from './arguments';
+import { gaps, absentOnlyVariables, place } from './arguments';
 import { callKind, expectAggregate, expectScalar, rejectAggregateKey } from './kinds';
 import * as Locate from './locate';
 import { closedRow, define, demand, drop, openRow, schemaRow } from './row';
@@ -278,14 +278,14 @@ const call = (
     return unresolved(problem('arity', `${fn.name} takes ${Print.signature(fn.type)}`, location));
   }
   // The function's type is instantiated, and each argument is checked against its parameter.
-  const own = ownVariables(fn.type);
+  const perElement = perElementVariables(fn.type);
   const shared = instantiate(location);
   const elementOf = (arg: ExprNode, slot: Slot, at: Location, tuple?: Tuple) => ({
     typed: check(
       library,
       row,
       arg,
-      instantiate(location, own, tuple)(slot.type),
+      instantiate(location, perElement, tuple)(slot.type),
       at,
       `${fn.name} needs`
     ),
@@ -313,19 +313,19 @@ const call = (
     }
   });
   const elements = given.flatMap((g) => g.elements);
-  const omitted = omittedVariables(placed, fn.type.result);
+  const absent = absentOnlyVariables(placed, fn.type.result);
   const needed = fn.type.requires.flatMap((r, k) => {
     const names = variableNames(r.args);
-    const param = names.flatMap((name) => own.get(name) ?? [])[0];
+    const param = names.flatMap((name) => perElement.get(name) ?? [])[0];
     const sequence = param === undefined ? undefined : placed[param];
-    return names.some((name) => omitted.has(name))
+    return names.some((name) => absent.has(name))
       ? []
       : param === undefined
       ? [{ hole: Locate.instance(location, k), protocol: r.protocol, args: r.args.map(shared) }]
       : (sequence?.tag === 'many' ? sequence.items : []).map((_, item) => ({
           hole: Locate.itemInstance(location, k, param, item),
           protocol: r.protocol,
-          args: r.args.map(instantiate(location, own, { param, item })),
+          args: r.args.map(instantiate(location, perElement, { param, item })),
         }));
   });
   const { kind, emit: kindEmit } = callKind(
@@ -365,15 +365,15 @@ interface Tuple {
 
 /**
  * Each type variable of a function's type becomes a meta named for the call it is at. Inside a
- * tuple of a sequence, the variables that are the sequence's own are that tuple's.
+ * tuple of a sequence, the variables that stand for each element of that sequence are that tuple's.
  */
 const instantiate =
-  (location: Location, own: ReadonlyMap<string, number> = new Map(), tuple?: Tuple) =>
+  (location: Location, perElement: ReadonlyMap<string, number> = new Map(), tuple?: Tuple) =>
   (term: Mono): Mono =>
     term.tag !== 'var'
       ? term
       : metaType(
-          tuple && own.get(term.name) === tuple.param
+          tuple && perElement.get(term.name) === tuple.param
             ? Locate.itemVariable(location, term.name, tuple.param, tuple.item)
             : Locate.typeVariable(location, term.name)
         );

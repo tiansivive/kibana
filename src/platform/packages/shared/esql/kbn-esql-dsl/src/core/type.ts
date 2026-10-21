@@ -86,7 +86,7 @@ export const variableNames = (types: readonly Mono[]): readonly string[] =>
  * The variables that stand for each tuple of a sequence separately, by name, with the position of
  * the sequence: those that occur in one `many` parameter and in no other parameter or the result.
  */
-export const ownVariables = ({ params, result }: Poly): ReadonlyMap<string, number> => {
+export const perElementVariables = ({ params, result }: Poly): ReadonlyMap<string, number> => {
   const named = params.map((p) => variableNames(typesOf(p)));
   const inResult = variableNames([result]);
   return new Map(

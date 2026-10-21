@@ -76,7 +76,10 @@ export const gaps = (placed: readonly Placed[]): readonly number[] =>
 const given = (p: Placed): boolean => p.tag === 'optional' && p.node !== undefined;
 
 /** Variables that only an optional parameter left out of a call mentions, which need nothing. */
-export const omittedVariables = (placed: readonly Placed[], result: Mono): ReadonlySet<string> => {
+export const absentOnlyVariables = (
+  placed: readonly Placed[],
+  result: Mono
+): ReadonlySet<string> => {
   const left = (p: Placed) => p.tag === 'optional' && p.node === undefined;
   const used = new Set([
     ...variableNames([result]),
