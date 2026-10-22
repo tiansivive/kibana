@@ -17,6 +17,9 @@ import type { Hole, Meta } from '../core/type';
  * names from the location of the node they belong to, so no other file spells these strings.
  */
 
+/** The source command, which is also where a problem with the query as a whole is reported. */
+export const source: Location = { path: 'source' };
+
 /** The command at `index` of the pipe. */
 export const command = (index: number, tag: string): Location => ({
   path: `pipe[${index}].${tag}`,

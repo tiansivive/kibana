@@ -54,6 +54,8 @@ export { resolve } from './elaboration/solve/solution';
 export type { Diagnostic, DiagnosticCode } from './diagnostics/diagnostic';
 export type { Location } from './diagnostics/location';
 export type { CommandNode, QueryAst, SortSpec } from './surface/query';
+export type { Edit, Finding, Problem, Rule, Severity } from './lint/lint';
+export { applyFixes, lint, recommended } from './lint/lint';
 export type { Cols, Dropped, OpenSchema, Q, SortKey, Stage } from './dsl/query';
 export {
   asc,

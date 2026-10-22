@@ -16,11 +16,14 @@
 
 ## Next, in order
 
-- [ ] Lint engine: rules over the typechecked Core
-  - [ ] `LIMIT` missing (the default of 1000 rows applies), `LIMIT` before `SORT`
-  - [ ] Redundant conversions, dead `EVAL` or `RENAME`, `EVAL` plus `DROP` that is a `RENAME`
-  - [ ] Redundant `IS NOT NULL`
+- [ ] Lint engine
+  - [x] `lint`, `applyFixes`, edits as command replacements
+  - [x] `LIMIT` missing (the default of 1000 rows applies), `LIMIT` before `SORT`, `SORT` before `STATS`, repeated `LIMIT`
+  - [x] Dead `EVAL`, `RENAME` chains, `EVAL` plus `DROP` that is a `RENAME`
+  - [ ] Rules that read resolved types, such as a redundant conversion (rules then take the typechecked query)
+  - [ ] Redundant `IS NOT NULL` (needs a library flag for functions that return null for null input)
   - [ ] `CASE`: unreachable branch, all values equal
+  - [x] Show findings in the REPL (`:q`) and apply fixes (`:fix`)
 - [ ] CLI tools
   - [ ] Schema type generated from `field_caps`
   - [ ] TypeScript signatures generated from the library

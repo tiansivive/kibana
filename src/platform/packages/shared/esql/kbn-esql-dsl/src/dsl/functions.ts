@@ -230,9 +230,10 @@ const fold = <T extends ExprType, K extends Kind>(
 };
 
 /**
- * The type of a sum of three or more operands. It is the widest number among them, or the type
- * of the time value that quantities are added to, and it does not follow the order of the
- * operands, so a combination that is not valid has some type here and is reported by `typecheck`.
+ * The type of a sum of three or more operands.
+ *
+ * It is the widest number among them, or the type of the time value that quantities are added to,
+ * and it does not follow the order of the operands, so a combination that is not valid has some type here and is reported by `typecheck`.
  * A fold over the table of `add` gives the same answer for valid operands, but costs far more to
  * check, because TypeScript expands a recursive type over the whole table to check its signature.
  */

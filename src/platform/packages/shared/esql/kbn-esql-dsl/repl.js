@@ -12,7 +12,8 @@
  * repository root. Every export of the package is in scope, and so is `riskScoresQuery`, the risk
  * score calculation's query written with the DSL (`src/examples/risk_scores.ts`), and an expression prints as the plain
  * JS value it is. `:h` lists the commands, which show a query the way the playground does (`:q`),
- * look up types, protocols and instances (`:t`, `:i`), and switch what they show (`:toggle`).
+ * lint a query and apply the fixes (`:fix`), look up types, protocols and instances (`:t`, `:i`), and
+ * switch what they show (`:toggle`).
  * `:connect` or `:load` give it mappings to check a query against (`:check`, `:caps`).
  */
 
@@ -29,6 +30,31 @@ const { candidates } = require('./src/elaboration/solve/guidance');
 // What `:toggle` switches. The kind signatures and the Core start hidden, the `where` lines shown.
 const settings = { kinds: false, dependencies: true, 'print-core': false };
 
+const lintText = (ast) => {
+  const findings = dsl.lint(ast);
+  return findings.length === 0
+    ? 'lint: nothing found'
+    : [
+        'lint:',
+        ...findings.flatMap((f) => [
+          `  ${f.severity} ${f.rule} (${f.location.path}): ${f.message}`,
+          `    Perhaps: ${f.perhaps}${f.fix ? ' (:fix applies it)' : ''}`,
+        ]),
+      ].join('\n');
+};
+
+// The query after its fixes are applied, and the rules whose fixes were applied.
+const fixed = (q) => {
+  const { ast, applied } = dsl.applyFixes(q.ast, dsl.lint(q.ast));
+  return applied.length === 0
+    ? 'nothing to fix'
+    : [
+        dsl.compile(dsl.typecheck(ast).core).print('pipe-multiline'),
+        `\napplied: ${applied.map((f) => `${f.rule} (${f.location.path})`).join(', ')}`,
+        'lint again to find what the fixes uncovered',
+      ].join('\n');
+};
+
 const describe = (q, options) => {
   const result = dsl.typecheck(q.ast, options);
   const explain = (type) =>
@@ -42,6 +68,7 @@ const describe = (q, options) => {
       : `\nproblems:\n${result.diagnostics
           .map((d) => `  ${d.location.path}: ${d.message}`)
           .join('\n')}`,
+    `\n${lintText(q.ast)}`,
     '\ncolumns read, and the types the query allows each to have:',
     ...[...result.required].map(
       ([name, types]) => `  ${name}: {${types.map(dsl.Print.esqlType).join(', ')}}`
@@ -252,20 +279,9 @@ const check = async (query) => {
 const evaluate = server.eval;
 
 // `:q` evaluates what follows it and, when that is a query, shows it the way the playground does.
-const showQuery = (expression, context, done) =>
-  evaluate.call(server, `${expression}\n`, context, 'repl', (error, value) => {
-    if (error) {
-      console.log(String(error));
-    } else if (isQuery(value)) {
-      console.log(describe(value));
-    } else {
-      console.log(`not a query: ${inspect(value, { colors: process.stdout.isTTY })}`);
-    }
-    done(null);
-  });
-
-// `:check` evaluates what follows it and, when that is a query, checks it against the mappings.
-const checkQuery = (expression, context, done) =>
+// Evaluates the expression after a command and, when it is a query, passes it to `use`, which
+// returns the text to print or a promise of it.
+const withQuery = (expression, context, done, use) =>
   evaluate.call(server, `${expression}\n`, context, 'repl', (error, value) => {
     if (error) {
       console.log(String(error));
@@ -274,11 +290,20 @@ const checkQuery = (expression, context, done) =>
       console.log(`not a query: ${inspect(value, { colors: process.stdout.isTTY })}`);
       done(null);
     } else {
-      check(value)
-        .then(console.log, (e) => console.log(`request failed: ${e.message}`))
+      Promise.resolve(value)
+        .then(use)
+        .then(console.log, (e) => console.log(`failed: ${e.message}`))
         .then(() => done(null));
     }
   });
+
+const showQuery = (expression, context, done) =>
+  withQuery(expression, context, done, (q) => describe(q));
+
+const fixQuery = (expression, context, done) => withQuery(expression, context, done, fixed);
+
+// `:check` evaluates what follows it and, when that is a query, checks it against the mappings.
+const checkQuery = (expression, context, done) => withQuery(expression, context, done, check);
 
 const asynchronously = (work, done) =>
   work()
@@ -288,6 +313,7 @@ const asynchronously = (work, done) =>
 const helpText = (list) =>
   [
     'Every export of the package is in scope, and `show(query, { schema })` shows a query against a schema.',
+    'For several lines, end each line with a dot or an open bracket, or type `.editor`, paste and press Ctrl+D. The colon commands take one line, so assign a multiline query first and pass its name.',
     '',
     ...list.map((c) => `  ${c.usage.padEnd(26)}${c.help}`),
   ].join('\n');
@@ -295,8 +321,13 @@ const helpText = (list) =>
 const commands = [
   {
     usage: ':q <expression>',
-    help: 'show a one-line query: its ES|QL, checks, columns read and principal type, and the elaborated Core with :toggle print-core',
+    help: 'show a one-line query: its ES|QL, checks, lint findings, columns read and principal type, and the elaborated Core with :toggle print-core',
     run: (argument, context, done) => showQuery(argument, context, done),
+  },
+  {
+    usage: ':fix <expression>',
+    help: 'apply the fixes of the lint findings of a query and show the result',
+    run: (argument, context, done) => fixQuery(argument, context, done),
   },
   {
     usage: ':t [function]',
