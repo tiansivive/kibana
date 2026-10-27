@@ -6,7 +6,7 @@ About 30 minutes. Lead with what the existing packages do not do: types in the e
 
 - Local ES up, then `scripts/setup_test_indices.sh`.
 - Start the REPL (`node repl.js` from the package directory). Run `:connect` as its own step, because input piped in at once runs `:check` before the connection finishes.
-- Keep `src/dsl/__type_tests__/core.ts` open for the editor errors.
+- Open `scratchpad.ts` for the editor steps: hover `c` on the lines marked `// hover c` in `typedFlow` and `openFlow`, and remove an `@ts-expect-error` to see its error.
 - For multiline input in the REPL, end each line with a dot or an open bracket, or use `.editor`. `:h` says so.
 
 ## Outline
@@ -28,6 +28,42 @@ About 30 minutes. Lead with what the existing packages do not do: types in the e
 8. **How it works (3 min).** The DSL builds an AST, which elaborates into a Core with a type on every node, and the solver records a solution. Nothing is rewritten. Compile prints through `@elastic/esql`. Each function has one polymorphic type, and protocols and instances (`Numeric`, `Norm`, `Arith`, ...) carry the variety of types ES accepts. Unknown columns produce guidance, and preflight turns it into errors once real types exist.
 
 9. **Next (2 min).** `ROADMAP.md`: rules over resolved types, CLI tools (schema type from `field_caps`, signatures from the library), declared columns, then the library.
+
+## Copy into the REPL
+
+Start the REPL from the repository root with `node src/platform/packages/shared/esql/kbn-esql-dsl/repl.js`, after `scripts/setup_test_indices.sh`. Paste `:connect` alone first and wait for the banner. The colon commands take one line, so each query below is one line. `:fix` prints the fixed ES|QL and the rules it applied, and `:q` on the same query shows the findings. All of these ran against the local cluster.
+
+Lint, with fixes:
+
+```
+:q from('dsl-logs-*').sort((c) => [desc(c.bytes)]).stats((c) => ({ n: count(c.bytes) }), (c) => ({ host: c['host.name'] })).limit(100).limit(5)
+:fix from('dsl-logs-*').sort((c) => [desc(c.bytes)]).stats((c) => ({ n: count(c.bytes) }), (c) => ({ host: c['host.name'] })).limit(100).limit(5)
+:fix from('dsl-logs-*').eval('volume', (c) => c.bytes).drop('bytes').limit(10)
+:fix from('dsl-logs-*').rename('bytes', 'b').rename('b', 'volume').limit(10)
+:fix from('dsl-logs-*').eval('unused', (c) => add(c.bytes, lit.long(1))).keep('host.name', 'bytes').limit(5)
+```
+
+The first gives `FROM dsl-logs-* | STATS n = COUNT(bytes) BY host = host.name | LIMIT 5`, the second and third give `RENAME bytes AS volume`, and the fourth drops the unused `EVAL`. `:q from('dsl-logs-*').where((c) => gt(c.bytes, lit.long(100)))` shows `missing-limit`, which has no fix.
+
+Checked against the mappings, passing:
+
+```
+:check from('dsl-logs-*').sort((c) => [desc(c.bytes)]).stats((c) => ({ n: count(c.bytes) }), (c) => ({ host: c['host.name'] })).limit(100).limit(5)
+:check from('dsl-logs-*').eval('volume', (c) => c.bytes).drop('bytes').limit(10)
+```
+
+Checked against the mappings, failing, each in a different way:
+
+```
+:check from('dsl-logs-*').where((c) => gt(c['host.name'], lit.long(1))).limit(5)
+:check from('dsl-logs-*').where((c) => gt(c.size, lit.long(1))).limit(5)
+:check from('dsl-logs-*').where((c) => eq(c.missing, lit.str('x'))).limit(5)
+:check from('dsl-logs-*').stats((c) => ({ s: sum(c.message) })).limit(5)
+```
+
+They report `no_instance` (keyword compared with long), `conflicting_field_types` (`size` is long in one index and keyword in the other), `unmapped_column`, and `no_instance` again (`sum` over text). `:check` prints the preflight result and the columns read, and does not print lint findings, so use `:q` for those.
+
+Without a cluster, `:q riskScoresQuery({ identifierField: 'host.name', afterKeys: { lower: 'a' }, pageSize: 100 })` prints the real risk score query.
 
 ## Say these limits first
 

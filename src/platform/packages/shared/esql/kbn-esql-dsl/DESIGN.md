@@ -1,5 +1,8 @@
 # @kbn/esql-dsl
 
+[OVERVIEW.md](./OVERVIEW.md) introduces the package, its place among the existing ES|QL tools,
+and its type inference model in application-focused language.
+
 A typed ES|QL query DSL. Queries are built with helper functions that produce a discriminated-union AST. The AST is checked for internal consistency, which needs no index mapping, and compiled onto `@elastic/esql`.
 
 ## Goals
